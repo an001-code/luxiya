@@ -34,12 +34,10 @@ function ResourcePanel({ board, side, onView, onPayment, paymentIds, onEliminate
   paymentIds: Set<string>;
   onEliminate?: () => void;
 }) {
-  const title = side === 'self' ? '我方' : '对手';
   const signalSlots = Math.max(12, board.signals.length);
   return (
-    <section className={`resource-panel ${side}`}>
-      <header><strong>{title}资源</strong><span>侵蚀 {board.corruption}/7</span></header>
-      <h3>{title}信号球区 <em>{board.signals.length}</em></h3>
+    <section className={`resource-panel ${side}`} aria-label={side === 'self' ? '蓝方资源' : '红方资源'}>
+      <h3>信号球区 <em>{board.signals.length}</em></h3>
       <div className="signal-grid">
         {Array.from({ length: signalSlots }, (_, index) => {
           const card = board.signals[index];
@@ -53,7 +51,7 @@ function ResourcePanel({ board, side, onView, onPayment, paymentIds, onEliminate
         })}
       </div>
       {onEliminate && <button className="eliminate-signals" onClick={onEliminate}>三消前3张 · 抽1张</button>}
-      <h3>{title}费用区 {board.energy.length}/10</h3>
+      <h3>费用区 {board.energy.length}/10</h3>
       <div className="energy-grid">
         {Array.from({ length: 10 }, (_, index) => {
           const card = board.energy[index];
@@ -65,6 +63,10 @@ function ResourcePanel({ board, side, onView, onPayment, paymentIds, onEliminate
       </div>
     </section>
   );
+}
+
+function CorruptionBar({ corruption, side }: { corruption: number; side: 'opponent' | 'self' }) {
+  return <section className={`corruption-bar ${side}`} data-corruption-track={side}><strong>侵蚀</strong><div className="corruption-cells">{Array.from({ length: 8 }, (_, value) => <i key={value} data-corruption-cell={value} className={`${value <= corruption ? 'filled' : ''} ${value === corruption ? 'current' : ''}`}>{value}</i>)}</div><b>{corruption}/7</b></section>;
 }
 
 function FieldRow({ board, side, selectedId, onCard, getAction, onAction }: {
@@ -171,6 +173,7 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
       <section className="battle-center">
         <div className="opponent-hand"><span>对手手牌</span><strong>{'count' in view.opponent.hand ? view.opponent.hand.count : view.opponent.hand.length}</strong><div className="card-backs">{Array.from({ length: Math.min(7, 'count' in view.opponent.hand ? view.opponent.hand.count : 0) }, (_, index) => <i key={index} />)}</div></div>
         <FieldRow board={view.opponent} side="opponent" selectedId={detailCardId} onCard={viewCard} />
+        <CorruptionBar corruption={view.opponent.corruption} side="opponent" />
         <section className="processing-console">
           <ProcessingZone board={view.opponent} side="opponent" selectedId={detailCardId} onCard={viewCard} />
           <section className="action-console">
@@ -180,6 +183,7 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
           </section>
           <ProcessingZone board={view.self} side="self" selectedId={detailCardId} onCard={viewCard} />
         </section>
+        <CorruptionBar corruption={view.self.corruption} side="self" />
         <FieldRow board={view.self} side="self" selectedId={detailCardId} onCard={viewCard} getAction={fieldActionAt} onAction={onCommand} />
         <div className="hand-zone">
           <span className="hand-count">手牌 {hand.length}</span>

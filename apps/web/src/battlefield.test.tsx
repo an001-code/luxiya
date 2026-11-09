@@ -22,14 +22,17 @@ describe('Battlefield', () => {
     expect(html.match(/data-field-slot=/g)).toHaveLength(10);
     expect(html.match(/data-energy-slot=/g)).toHaveLength(20);
     expect(html.match(/data-signal-slot=/g)).toHaveLength(24);
-    expect(html).toContain('对手信号球区');
-    expect(html).toContain('我方费用区');
+    expect(html.match(/data-corruption-cell=/g)).toHaveLength(16);
+    expect(html.match(/信号球区/g)).toHaveLength(2);
+    expect(html.match(/费用区/g)).toHaveLength(2);
     expect(html).toContain('卡牌详情');
     expect(html).toContain('回合记录');
     expect(html).toContain('墓地');
     expect(html).toContain('认输');
     expect(html).toContain('对手处理区');
     expect(html).toContain('我方处理区');
+    expect(html).not.toContain('对手资源');
+    expect(html).not.toContain('我方资源');
   });
 
   test('renders public resource cards as detail buttons while opponent hand stays hidden', () => {
