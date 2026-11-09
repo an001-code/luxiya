@@ -54,19 +54,18 @@ export const buildServer = (options: BuildServerOptions = {}) => {
     return { playerId: userId, deck, definitions: [...definitions.values()] };
   };
 
-  const authenticatedMatchConfig = async (request: Parameters<typeof authGuard.requireUser>[0]): Promise<MatchSeatConfig | null> => {
-    if (!request.headers.cookie?.includes('pgr_session=')) return null;
+  const authenticatedMatchConfig = async (request: Parameters<typeof authGuard.requireUser>[0]): Promise<MatchSeatConfig> => {
     const user = await authGuard.requireUser(request);
     return matchConfig(user.id);
   };
 
   app.get('/api/health', async () => ({ ok: true }));
   app.post('/api/rooms', async (request, reply) => {
-    try { return reply.code(201).send(manager.createRoom(await authenticatedMatchConfig(request) ?? undefined)); }
+    try { return reply.code(201).send(manager.createRoom(await authenticatedMatchConfig(request))); }
     catch (error) { return reply.code(statusForError(error)).send({ error: error instanceof Error ? error.message : 'UNKNOWN' }); }
   });
   app.post<{ Params: { code: string } }>('/api/rooms/:code/join', async (request, reply) => {
-    try { return manager.joinRoom(request.params.code, await authenticatedMatchConfig(request) ?? undefined); }
+    try { return manager.joinRoom(request.params.code, await authenticatedMatchConfig(request)); }
     catch (error) { return reply.code(statusForError(error)).send({ error: error instanceof Error ? error.message : 'UNKNOWN' }); }
   });
 
