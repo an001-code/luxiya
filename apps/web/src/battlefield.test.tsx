@@ -21,12 +21,28 @@ describe('Battlefield', () => {
     const html = renderToStaticMarkup(<Battlefield view={view} onCommand={() => undefined} />);
     expect(html.match(/data-field-slot=/g)).toHaveLength(10);
     expect(html.match(/data-energy-slot=/g)).toHaveLength(20);
+    expect(html.match(/data-signal-slot=/g)).toHaveLength(24);
     expect(html).toContain('对手信号球区');
     expect(html).toContain('我方费用区');
     expect(html).toContain('卡牌详情');
     expect(html).toContain('回合记录');
     expect(html).toContain('墓地');
     expect(html).toContain('认输');
+    expect(html).toContain('对手处理区');
+    expect(html).toContain('我方处理区');
+  });
+
+  test('renders public resource cards as detail buttons while opponent hand stays hidden', () => {
+    const publicCard = { instanceId: 'public-signal', cardId: 'BP01-079', face: 'up' as const, rested: false };
+    const ownEnergy = { instanceId: 'own-energy', cardId: 'ST01-005', face: 'up' as const, rested: false };
+    const html = renderToStaticMarkup(<Battlefield view={{
+      ...view,
+      self: { ...view.self, signals: [publicCard], energy: [ownEnergy], processing: [publicCard] },
+      opponent: { ...view.opponent, signals: [publicCard], processing: [publicCard] },
+    }} onCommand={() => undefined} />);
+
+    expect(html.match(/data-card-view=/g)).toHaveLength(5);
+    expect(html).not.toContain('data-opponent-hand-card');
   });
 
   test('shows a result overlay when the game has finished', () => {

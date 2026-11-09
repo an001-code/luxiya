@@ -231,20 +231,30 @@ const canPay = (player: PlayerState, cardId: string): boolean => {
   const available = player.energy.filter((card) => !card.rested);
   if (available.length < definition.cost) return false;
   if (definition.cost === 0 || definition.attribute === 'none') return true;
-  return player.energy.some((card) => card.face === 'up' && getCardDefinition(card.cardId).attribute === definition.attribute);
+  return available.some((card) => card.face === 'up' && getCardDefinition(card.cardId).attribute === definition.attribute);
 };
 
-const pay = (player: PlayerState, amount: number): void => {
-  const bright = player.energy.filter((card) => !card.rested && card.face === 'up').slice(0, amount);
-  for (const card of bright) card.rested = true;
-  let remaining = amount - bright.length;
-  for (let i = player.energy.length - 1; i >= 0 && remaining > 0; i -= 1) {
-    const card = player.energy[i]!;
-    if (card.face === 'down' && !card.rested) {
-      player.energy.splice(i, 1);
+const selectedPayment = (player: PlayerState, cardId: string, paymentIds: string[] | undefined): CardInstance[] | null => {
+  const definition = getCardDefinition(cardId);
+  const ids = paymentIds ?? [];
+  if (ids.length !== definition.cost || new Set(ids).size !== ids.length) return null;
+  const selected = ids.map((id) => player.energy.find((card) => card.instanceId === id && !card.rested));
+  if (selected.some((card) => !card)) return null;
+  const cards = selected as CardInstance[];
+  if (definition.cost > 0 && definition.attribute !== 'none'
+    && !cards.some((card) => card.face === 'up' && getCardDefinition(card.cardId).attribute === definition.attribute)) return null;
+  return cards;
+};
+
+const pay = (player: PlayerState, selected: CardInstance[]): void => {
+  for (const selectedCard of selected) {
+    const index = player.energy.findIndex((card) => card.instanceId === selectedCard.instanceId);
+    const card = player.energy[index]!;
+    if (card.face === 'up') card.rested = true;
+    else {
+      player.energy.splice(index, 1);
       card.face = 'up';
       player.graveyard.push(card);
-      remaining -= 1;
     }
   }
 };
@@ -364,7 +374,9 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
     const inResponse = Boolean(next.pendingAttack && next.pendingAttack.priorityPlayerId === command.playerId && definition.subtype === 'instant');
     if (!inResponse && (next.phase !== 'main' || next.activePlayerId !== command.playerId || definition.subtype === 'instant')) return reject(state, 'NOT_YOUR_ACTION', '当前不能使用该卡牌');
     if (!canPay(player, card.cardId)) return reject(state, 'ILLEGAL_ACTION', '费用或属性条件不满足');
-    pay(player, definition.cost);
+    const payment = selectedPayment(player, card.cardId, command.paymentIds);
+    if (!payment) return reject(state, 'ILLEGAL_ACTION', '请选择符合费用和属性要求的费用牌');
+    pay(player, payment);
     player.hand.splice(index, 1);
     card.face = 'up';
     if (definition.signal) {

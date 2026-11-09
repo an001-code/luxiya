@@ -96,7 +96,7 @@ export type GameCommand = CommandBase & (
   | { type: 'MULLIGAN'; instanceIds: string[] }
   | { type: 'ADVANCE_PHASE' }
   | { type: 'SET_ENERGY'; instanceId?: string }
-  | { type: 'PLAY_CARD'; instanceId: string; fieldSlot?: number; targetSlot?: number }
+  | { type: 'PLAY_CARD'; instanceId: string; fieldSlot?: number; targetSlot?: number; paymentIds?: string[] }
   | { type: 'ELIMINATE_SIGNALS'; startIndex: number }
   | { type: 'ACTIVATE_ABILITY'; sourceInstanceId: string; abilityIndex: number; targetInstanceIds?: string[] }
   | { type: 'DECLARE_ATTACK'; attackerSlot: number; target: 'player' | 'character'; targetSlot?: number }

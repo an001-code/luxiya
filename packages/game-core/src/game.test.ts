@@ -99,6 +99,71 @@ describe('commands', () => {
     expect(result.rejection?.code).toBe('ILLEGAL_ACTION');
   });
 
+  test('spends only the explicitly selected energy cards', () => {
+    const state = createGame(['p1', 'p2'], developmentDeck, sequenceRng([0.1]));
+    const player = state.players[state.activePlayerId]!;
+    state.phase = 'main';
+    player.field[0] = { instanceId: 'host', cardId: 'ST01-006', face: 'up', rested: false, enteredTurn: 0 };
+    player.hand = [{ instanceId: 'weapon', cardId: 'BP01-023', face: 'up', rested: false }];
+    player.energy = [
+      { instanceId: 'selected-physical-1', cardId: 'ST01-005', face: 'up', rested: false },
+      { instanceId: 'unused-physical', cardId: 'ST01-005', face: 'up', rested: false },
+      { instanceId: 'selected-dark', cardId: 'BP01-007', face: 'down', rested: false },
+      { instanceId: 'selected-physical-2', cardId: 'ST01-005', face: 'up', rested: false },
+    ];
+
+    const result = applyCommand(state, {
+      type: 'PLAY_CARD', commandId: 'selected-payment', playerId: player.id, expectedVersion: state.version,
+      instanceId: 'weapon', targetSlot: 0,
+      paymentIds: ['selected-physical-1', 'selected-dark', 'selected-physical-2'],
+    }, sequenceRng([0.1]));
+
+    expect(result.accepted).toBe(true);
+    const paidPlayer = result.state.players[player.id]!;
+    expect(paidPlayer.energy.find((card) => card.instanceId === 'selected-physical-1')?.rested).toBe(true);
+    expect(paidPlayer.energy.find((card) => card.instanceId === 'selected-physical-2')?.rested).toBe(true);
+    expect(paidPlayer.energy.find((card) => card.instanceId === 'unused-physical')?.rested).toBe(false);
+    expect(paidPlayer.energy.some((card) => card.instanceId === 'selected-dark')).toBe(false);
+    expect(paidPlayer.graveyard.some((card) => card.instanceId === 'selected-dark')).toBe(true);
+  });
+
+  test('rejects selected payment that omits the required attribute', () => {
+    const state = createGame(['p1', 'p2'], developmentDeck, sequenceRng([0.1]));
+    const player = state.players[state.activePlayerId]!;
+    state.phase = 'main';
+    player.field[0] = { instanceId: 'host', cardId: 'ST01-006', face: 'up', rested: false, enteredTurn: 0 };
+    player.hand = [{ instanceId: 'weapon', cardId: 'BP01-023', face: 'up', rested: false }];
+    player.energy = [
+      { instanceId: 'unselected-physical', cardId: 'ST01-005', face: 'up', rested: false },
+      ...Array.from({ length: 3 }, (_, index) => ({ instanceId: `selected-ice-${index}`, cardId: 'BP01-007', face: 'up' as const, rested: false })),
+    ];
+
+    const result = applyCommand(state, {
+      type: 'PLAY_CARD', commandId: 'missing-payment-attribute', playerId: player.id, expectedVersion: state.version,
+      instanceId: 'weapon', targetSlot: 0,
+      paymentIds: ['selected-ice-0', 'selected-ice-1', 'selected-ice-2'],
+    }, sequenceRng([0.1]));
+
+    expect(result.accepted).toBe(false);
+    expect(result.state).toBe(state);
+    expect(result.rejection?.code).toBe('ILLEGAL_ACTION');
+  });
+
+  test('does not offer a card as playable when its only matching energy is rested', () => {
+    const state = createGame(['p1', 'p2'], developmentDeck, sequenceRng([0.1]));
+    const player = state.players[state.activePlayerId]!;
+    state.phase = 'main';
+    player.hand = [{ instanceId: 'weapon', cardId: 'BP01-023', face: 'up', rested: false }];
+    player.energy = [
+      { instanceId: 'rested-physical', cardId: 'ST01-005', face: 'up', rested: true },
+      ...Array.from({ length: 3 }, (_, index) => ({ instanceId: `available-ice-${index}`, cardId: 'BP01-007', face: 'up' as const, rested: false })),
+    ];
+
+    const playable = createPlayerView(state, player.id).legalActions.some((action) => action.type === 'PLAY_CARD' && action.instanceId === 'weapon');
+
+    expect(playable).toBe(false);
+  });
+
   test('resolves an unblocked attack after both players pass and creates facedown damage energy', () => {
     const state = createGame(['p1', 'p2'], developmentDeck, sequenceRng([0.1]));
     const attackerId = state.activePlayerId;
@@ -161,6 +226,7 @@ describe('commands', () => {
     player.energy = Array.from({ length: 3 }, (_, index) => ({ instanceId: `physical-${index}`, cardId: 'ST01-005', face: 'up' as const, rested: false }));
     const result = applyCommand(state, {
       type: 'PLAY_CARD', commandId: 'equip', playerId: player.id, expectedVersion: state.version, instanceId: 'weapon', targetSlot: 0,
+      paymentIds: ['physical-0', 'physical-1', 'physical-2'],
     }, sequenceRng([0.1]));
     expect(result.accepted).toBe(true);
     expect(result.state.players[player.id]!.field[0]?.attached?.[0]?.cardId).toBe('BP01-023');
@@ -179,6 +245,7 @@ describe('commands', () => {
     player.energy = Array.from({ length: 3 }, (_, index) => ({ instanceId: `physical-${index}`, cardId: 'ST01-005', face: 'up' as const, rested: false }));
     const result = applyCommand(state, {
       type: 'PLAY_CARD', commandId: 'double-equip', playerId: player.id, expectedVersion: state.version, instanceId: 'second-weapon', targetSlot: 0,
+      paymentIds: ['physical-0', 'physical-1', 'physical-2'],
     }, sequenceRng([0.1]));
     expect(result.accepted).toBe(false);
     expect(result.state).toBe(state);

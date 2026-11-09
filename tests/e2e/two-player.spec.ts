@@ -24,7 +24,20 @@ test('two guests join by room code, start a hidden-information game and concede'
   await expect(guest.locator('.battlefield-shell')).toBeVisible();
   await expect(host.locator('[data-field-slot]')).toHaveCount(10);
   await expect(host.locator('[data-energy-slot]')).toHaveCount(20);
+  await expect(host.locator('[data-signal-slot]')).toHaveCount(24);
+  await expect(host.locator('[data-processing-zone]')).toHaveCount(2);
   await expect(host.locator('.opponent-hand strong')).toHaveText('4');
+  await expect(host.locator('.opponent-hand button')).toHaveCount(0);
+
+  const openingCard = host.locator('.hand-cards .mini-card').first();
+  const openingCardName = await openingCard.getAttribute('title');
+  await openingCard.click();
+  await expect(host.locator('.detail-panel h2')).toHaveText(openingCardName!);
+
+  const ownEnergy = host.locator('.resource-panel.self .energy-slot:not(.empty)').first();
+  const ownEnergyName = await ownEnergy.getAttribute('title');
+  await ownEnergy.click();
+  await expect(host.locator('.detail-panel h2')).toHaveText(ownEnergyName!);
   await host.screenshot({ path: testInfo.outputPath('battlefield-1920.png'), fullPage: true });
   await host.setViewportSize({ width: 1280, height: 720 });
   await expect(host.locator('.battlefield-shell')).toBeVisible();
