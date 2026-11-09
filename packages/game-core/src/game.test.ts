@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { developmentDeck } from '@pgr/cards';
+import { cardDefinitions, developmentDeck } from '@pgr/cards';
 import {
   applyCommand,
   createGame,
@@ -19,6 +19,25 @@ describe('deck construction', () => {
 });
 
 describe('deterministic game state', () => {
+  test('uses different player decks and snapshots card definitions at match creation', () => {
+    const customDefinition = { ...cardDefinitions.find((card) => card.id === 'DEV-008')!, id: 'CUSTOM-008', name: '自建辅助机' };
+    const secondDeck = {
+      ...developmentDeck,
+      id: 'player-two-deck',
+      cards: developmentDeck.cards.map((id, index) => id === 'DEV-008' && index === developmentDeck.cards.lastIndexOf('DEV-008') ? 'CUSTOM-008' : id),
+    };
+    const definitions = [...cardDefinitions, customDefinition];
+
+    const state = createGame(['p1', 'p2'], [developmentDeck, secondDeck], definitions, sequenceRng([0.2, 0.8, 0.4]));
+    definitions.find((card) => card.id === 'CUSTOM-008')!.name = '赛后修改名称';
+
+    const p1Cards = Object.values(state.players.p1!).flatMap((value) => Array.isArray(value) ? value : []).map((card) => card?.cardId);
+    const p2Cards = Object.values(state.players.p2!).flatMap((value) => Array.isArray(value) ? value : []).map((card) => card?.cardId);
+    expect(p1Cards).not.toContain('CUSTOM-008');
+    expect(p2Cards).toContain('CUSTOM-008');
+    expect(state.cardDefinitions['CUSTOM-008']?.name).toBe('自建辅助机');
+  });
+
   test('creates the same shuffled opening state for the same random sequence', () => {
     const first = createGame(['p1', 'p2'], developmentDeck, sequenceRng([0.2, 0.8, 0.4]));
     const second = createGame(['p1', 'p2'], developmentDeck, sequenceRng([0.2, 0.8, 0.4]));

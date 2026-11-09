@@ -1,13 +1,21 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { developmentDeck } from '@pgr/cards';
+import { cardDefinitions, developmentDeck } from '@pgr/cards';
 import { applyCommand, createGame, createPlayerView } from '@pgr/game-core';
-import type { GameCommand, GameState, RoomCredentials, RoomSnapshot } from '@pgr/protocol';
+import type { CardDefinition, DeckDefinition, GameCommand, GameState, RoomCredentials, RoomSnapshot } from '@pgr/protocol';
+
+export interface MatchSeatConfig {
+  playerId: string;
+  deck: DeckDefinition;
+  definitions: CardDefinition[];
+}
 
 interface Seat {
   playerId: string;
   token: string;
   ready: boolean;
   connected: boolean;
+  deck: DeckDefinition;
+  definitions: CardDefinition[];
   disconnectedAt?: number;
 }
 
@@ -38,22 +46,35 @@ export class RoomManager {
     this.now = options.now ?? Date.now;
   }
 
-  createRoom(): RoomCredentials {
+  createRoom(config?: MatchSeatConfig): RoomCredentials {
     let code = this.codeGenerator().toUpperCase();
     for (let attempt = 0; this.rooms.has(code) && attempt < 10; attempt += 1) code = this.codeGenerator().toUpperCase();
     if (this.rooms.has(code)) throw new Error('ROOM_CODE_EXHAUSTED');
-    const credentials = { code, playerId: `p-${randomUUID()}`, token: this.tokenGenerator() };
-    this.rooms.set(code, { code, seats: [{ ...credentials, ready: false, connected: true }] });
+    const credentials = { code, playerId: config?.playerId ?? `p-${randomUUID()}`, token: this.tokenGenerator() };
+    this.rooms.set(code, { code, seats: [{
+      ...credentials,
+      ready: false,
+      connected: true,
+      deck: structuredClone(config?.deck ?? developmentDeck),
+      definitions: structuredClone(config?.definitions ?? cardDefinitions),
+    }] });
     return credentials;
   }
 
-  joinRoom(codeInput: string): RoomCredentials {
+  joinRoom(codeInput: string, config?: MatchSeatConfig): RoomCredentials {
     const code = codeInput.toUpperCase();
     const room = this.rooms.get(code);
     if (!room) throw new Error('ROOM_NOT_FOUND');
     if (room.seats.length >= 2) throw new Error('ROOM_FULL');
-    const credentials = { code, playerId: `p-${randomUUID()}`, token: this.tokenGenerator() };
-    room.seats.push({ ...credentials, ready: false, connected: true });
+    const credentials = { code, playerId: config?.playerId ?? `p-${randomUUID()}`, token: this.tokenGenerator() };
+    if (room.seats.some((seat) => seat.playerId === credentials.playerId)) throw new Error('PLAYER_ALREADY_SEATED');
+    room.seats.push({
+      ...credentials,
+      ready: false,
+      connected: true,
+      deck: structuredClone(config?.deck ?? developmentDeck),
+      definitions: structuredClone(config?.definitions ?? cardDefinitions),
+    });
     return credentials;
   }
 
@@ -71,7 +92,13 @@ export class RoomManager {
     const seat = this.requireSeat(credentials);
     seat.ready = ready;
     if (!room.game && room.seats.length === 2 && room.seats.every((item) => item.ready)) {
-      room.game = createGame([room.seats[0]!.playerId, room.seats[1]!.playerId], developmentDeck, Math.random);
+      const definitions = [...new Map(room.seats.flatMap((item) => item.definitions).map((definition) => [definition.id, definition])).values()];
+      room.game = createGame(
+        [room.seats[0]!.playerId, room.seats[1]!.playerId],
+        [room.seats[0]!.deck, room.seats[1]!.deck],
+        definitions,
+        Math.random,
+      );
     }
   }
 

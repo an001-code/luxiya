@@ -1,7 +1,7 @@
 import cors from '@fastify/cors';
 import Fastify from 'fastify';
 import { Server as SocketServer } from 'socket.io';
-import type { ClientToServerEvents, RoomCredentials, ServerToClientEvents } from '@pgr/protocol';
+import type { CardDefinition, ClientToServerEvents, DeckDefinition, RoomCredentials, ServerToClientEvents } from '@pgr/protocol';
 import { registerAuthRoutes } from './auth/routes.js';
 import { AuthService } from './auth/service.js';
 import { registerCardRoutes } from './cards/routes.js';
@@ -10,12 +10,14 @@ import { registerDeckRoutes } from './decks/routes.js';
 import { DeckService } from './decks/service.js';
 import { createMemoryRepository } from './persistence/memory-repository.js';
 import type { AppRepository } from './persistence/types.js';
-import { RoomManager } from './room-manager.js';
+import { RoomManager, type MatchSeatConfig } from './room-manager.js';
 
 const statusForError = (error: unknown): number => {
   const message = error instanceof Error ? error.message : '';
   if (message === 'ROOM_NOT_FOUND') return 404;
-  if (message === 'ROOM_FULL') return 409;
+  if (message === 'ROOM_FULL' || message === 'PLAYER_ALREADY_SEATED') return 409;
+  if (message === 'ACTIVE_DECK_REQUIRED' || message === 'ACTIVE_DECK_INVALID') return 422;
+  if (message === 'UNAUTHENTICATED') return 401;
   return 400;
 };
 
@@ -36,10 +38,35 @@ export const buildServer = (options: BuildServerOptions = {}) => {
   registerCardRoutes(app, new CardService(repository), authGuard);
   registerDeckRoutes(app, new DeckService(repository), authGuard);
 
+  const matchConfig = async (userId: string): Promise<MatchSeatConfig> => {
+    const active = (await repository.listDecksByUser(userId)).find((deck) => deck.active);
+    if (!active) throw new Error('ACTIVE_DECK_REQUIRED');
+    if (active.validationErrors.length > 0) throw new Error('ACTIVE_DECK_INVALID');
+    const definitions = new Map<string, CardDefinition>();
+    const cards: string[] = [];
+    for (const entry of active.cards) {
+      const card = await repository.findCardById(entry.cardId);
+      if (!card || card.status !== 'published') throw new Error('ACTIVE_DECK_INVALID');
+      definitions.set(card.id, card);
+      cards.push(...Array.from({ length: entry.count }, () => entry.cardId));
+    }
+    const deck: DeckDefinition = { id: active.id, name: active.name, developmentOnly: false, cards };
+    return { playerId: userId, deck, definitions: [...definitions.values()] };
+  };
+
+  const authenticatedMatchConfig = async (request: Parameters<typeof authGuard.requireUser>[0]): Promise<MatchSeatConfig | null> => {
+    if (!request.headers.cookie?.includes('pgr_session=')) return null;
+    const user = await authGuard.requireUser(request);
+    return matchConfig(user.id);
+  };
+
   app.get('/api/health', async () => ({ ok: true }));
-  app.post('/api/rooms', async (_request, reply) => reply.code(201).send(manager.createRoom()));
+  app.post('/api/rooms', async (request, reply) => {
+    try { return reply.code(201).send(manager.createRoom(await authenticatedMatchConfig(request) ?? undefined)); }
+    catch (error) { return reply.code(statusForError(error)).send({ error: error instanceof Error ? error.message : 'UNKNOWN' }); }
+  });
   app.post<{ Params: { code: string } }>('/api/rooms/:code/join', async (request, reply) => {
-    try { return manager.joinRoom(request.params.code); }
+    try { return manager.joinRoom(request.params.code, await authenticatedMatchConfig(request) ?? undefined); }
     catch (error) { return reply.code(statusForError(error)).send({ error: error instanceof Error ? error.message : 'UNKNOWN' }); }
   });
 

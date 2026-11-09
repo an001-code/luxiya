@@ -98,6 +98,7 @@ export interface GameEvent {
 export interface GameState {
   id: string;
   version: number;
+  cardDefinitions: Record<string, CardDefinition>;
   status: 'playing' | 'paused' | 'finished';
   players: Record<PlayerId, PlayerState>;
   playerOrder: [PlayerId, PlayerId];

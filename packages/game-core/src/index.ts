@@ -1,5 +1,6 @@
-import { getCardDefinition } from '@pgr/cards';
+import { cardDefinitions as builtInCardDefinitions, getCardDefinition } from '@pgr/cards';
 import type {
+  CardDefinition,
   CardInstance,
   DeckDefinition,
   GameCommand,
@@ -25,14 +26,17 @@ export const sequenceRng = (values: number[]): Rng => {
   };
 };
 
-export const validateDeck = (deck: DeckDefinition): { valid: boolean; errors: string[] } => {
+export const validateDeck = (
+  deck: DeckDefinition,
+  lookup: (id: string) => CardDefinition = getCardDefinition,
+): { valid: boolean; errors: string[] } => {
   const errors: string[] = [];
   if (deck.cards.length !== 50) errors.push('牌组必须恰好包含50张卡牌');
   const counts = new Map<string, number>();
   for (const id of deck.cards) counts.set(id, (counts.get(id) ?? 0) + 1);
   for (const [id, count] of counts) if (count > 4) errors.push(`${id} 超过同编号4张上限`);
   for (const color of ['red', 'blue', 'yellow'] as const) {
-    const count = deck.cards.filter((id) => getCardDefinition(id).signal === color).length;
+    const count = deck.cards.filter((id) => lookup(id).signal === color).length;
     if (count !== 4) errors.push(`${color}信号球必须恰好4张`);
   }
   return { valid: errors.length === 0, errors };
@@ -82,11 +86,35 @@ const addEvent = (state: GameState, type: string, playerId: string | undefined, 
   return event;
 };
 
-export const createGame = (playerIds: [PlayerId, PlayerId], deck: DeckDefinition, rng: Rng): GameState => {
-  const validation = validateDeck(deck);
-  if (!validation.valid) throw new Error(validation.errors.join('; '));
-  const players = Object.fromEntries(playerIds.map((id) => {
-    const shuffled = shuffle(createInstances(deck, id), rng);
+export function createGame(playerIds: [PlayerId, PlayerId], deck: DeckDefinition, rng: Rng): GameState;
+export function createGame(
+  playerIds: [PlayerId, PlayerId],
+  decks: [DeckDefinition, DeckDefinition],
+  definitions: CardDefinition[],
+  rng: Rng,
+): GameState;
+export function createGame(
+  playerIds: [PlayerId, PlayerId],
+  deckOrDecks: DeckDefinition | [DeckDefinition, DeckDefinition],
+  definitionsOrRng: CardDefinition[] | Rng,
+  suppliedRng?: Rng,
+): GameState {
+  const definitions = typeof definitionsOrRng === 'function' ? builtInCardDefinitions : definitionsOrRng;
+  const rng = typeof definitionsOrRng === 'function' ? definitionsOrRng : suppliedRng;
+  if (!rng) throw new Error('RNG is required');
+  const decks: [DeckDefinition, DeckDefinition] = Array.isArray(deckOrDecks) ? deckOrDecks : [deckOrDecks, deckOrDecks];
+  const definitionMap = Object.fromEntries(definitions.map((definition) => [definition.id, structuredClone(definition)]));
+  const lookup = (id: string): CardDefinition => {
+    const definition = definitionMap[id];
+    if (!definition) throw new Error(`Unknown card: ${id}`);
+    return definition;
+  };
+  for (const deck of decks) {
+    const validation = validateDeck(deck, lookup);
+    if (!validation.valid) throw new Error(validation.errors.join('; '));
+  }
+  const players = Object.fromEntries(playerIds.map((id, index) => {
+    const shuffled = shuffle(createInstances(decks[index]!, id), rng);
     const hand = shuffled.splice(0, 4).map((card) => ({ ...card, face: 'up' as const }));
     const energy = shuffled.splice(0, 2).map((card) => ({ ...card, face: 'up' as const }));
     const player: PlayerState = {
@@ -99,6 +127,7 @@ export const createGame = (playerIds: [PlayerId, PlayerId], deck: DeckDefinition
   const state: GameState = {
     id: `game-${Math.floor(rng() * 1_000_000).toString(36)}`,
     version: 0,
+    cardDefinitions: definitionMap,
     status: 'playing',
     players,
     playerOrder: playerIds,
@@ -112,22 +141,28 @@ export const createGame = (playerIds: [PlayerId, PlayerId], deck: DeckDefinition
   };
   addEvent(state, 'game-start', undefined, '对局创建，双方进行起手调度');
   return state;
+}
+
+const definitionFor = (state: GameState, cardId: string): CardDefinition => {
+  const definition = state.cardDefinitions[cardId];
+  if (!definition) throw new Error(`Unknown card in game snapshot: ${cardId}`);
+  return definition;
 };
 
 const opponentId = (state: GameState, playerId: string): string =>
   state.playerOrder.find((id) => id !== playerId) ?? state.playerOrder[0];
 
-const isHaste = (card: CardInstance): boolean => {
-  const effects = getCardDefinition(card.cardId).effectIds;
+const isHaste = (state: GameState, card: CardInstance): boolean => {
+  const effects = definitionFor(state, card.cardId).effectIds;
   if (effects.includes('haste')) return true;
-  return effects.includes('weapon_haste') && Boolean(card.attached?.some((item) => getCardDefinition(item.cardId).traits.includes('封刃太刀')));
+  return effects.includes('weapon_haste') && Boolean(card.attached?.some((item) => definitionFor(state, item.cardId).traits.includes('封刃太刀')));
 };
 
-const effectivePp = (card: CardInstance): number => (getCardDefinition(card.cardId).pp ?? 0)
-  + (card.attached ?? []).reduce((sum, item) => sum + (getCardDefinition(item.cardId).pp ?? 0), 0)
+const effectivePp = (state: GameState, card: CardInstance): number => (definitionFor(state, card.cardId).pp ?? 0)
+  + (card.attached ?? []).reduce((sum, item) => sum + (definitionFor(state, item.cardId).pp ?? 0), 0)
   + (card.temporaryPp ?? 0);
 
-const effectiveDp = (card: CardInstance): number => (getCardDefinition(card.cardId).dp ?? 0) + (card.temporaryDp ?? 0);
+const effectiveDp = (state: GameState, card: CardInstance): number => (definitionFor(state, card.cardId).dp ?? 0) + (card.temporaryDp ?? 0);
 
 export const getLegalActions = (state: GameState, playerId: string): LegalAction[] => {
   if (state.status !== 'playing') return [];
@@ -143,7 +178,7 @@ export const getLegalActions = (state: GameState, playerId: string): LegalAction
       });
     }
     for (const card of player.hand) {
-      if (getCardDefinition(card.cardId).subtype === 'instant' && canPay(player, card.cardId)) actions.push({ type: 'PLAY_CARD', instanceId: card.instanceId });
+      if (definitionFor(state, card.cardId).subtype === 'instant' && canPay(state, player, card.cardId)) actions.push({ type: 'PLAY_CARD', instanceId: card.instanceId });
     }
     return actions;
   }
@@ -153,17 +188,17 @@ export const getLegalActions = (state: GameState, playerId: string): LegalAction
   if (state.phase !== 'main') return [];
   const actions: LegalAction[] = [{ type: 'END_PHASE' }];
   for (const card of player.hand) {
-    const definition = getCardDefinition(card.cardId);
-    if (definition.subtype === 'instant' || !canPay(player, card.cardId)) continue;
+    const definition = definitionFor(state, card.cardId);
+    if (definition.subtype === 'instant' || !canPay(state, player, card.cardId)) continue;
     const hasEmptySlot = player.field.some((item) => item === null);
-    const hasEquipmentTarget = definition.subtype === 'equipment' && player.field.some((item) => item && getCardDefinition(item.cardId).type === 'character' && !item.attached?.length);
+    const hasEquipmentTarget = definition.subtype === 'equipment' && player.field.some((item) => item && definitionFor(state, item.cardId).type === 'character' && !item.attached?.length);
     if ((definition.type === 'character' || definition.subtype === 'support') && !hasEmptySlot) continue;
     if (definition.subtype === 'equipment' && !hasEmptySlot && !hasEquipmentTarget) continue;
     actions.push({ type: 'PLAY_CARD', instanceId: card.instanceId });
   }
   for (let startIndex = 0; startIndex + 2 < player.signals.length; startIndex += 1) actions.push({ type: 'ELIMINATE_SIGNALS', startIndex });
   player.field.forEach((card, attackerSlot) => {
-    if (!card || card.rested || (card.enteredTurn === state.turn && !isHaste(card))) return;
+    if (!card || card.rested || (card.enteredTurn === state.turn && !isHaste(state, card))) return;
     actions.push({ type: 'DECLARE_ATTACK', attackerSlot, target: 'player' });
     const opponent = state.players[opponentId(state, playerId)]!;
     opponent.field.forEach((target, targetSlot) => {
@@ -226,23 +261,23 @@ const reject = (state: GameState, code: NonNullable<GameResult['rejection']>['co
   rejection: { code, message },
 });
 
-const canPay = (player: PlayerState, cardId: string): boolean => {
-  const definition = getCardDefinition(cardId);
+const canPay = (state: GameState, player: PlayerState, cardId: string): boolean => {
+  const definition = definitionFor(state, cardId);
   const available = player.energy.filter((card) => !card.rested);
   if (available.length < definition.cost) return false;
   if (definition.cost === 0 || definition.attribute === 'none') return true;
-  return available.some((card) => card.face === 'up' && getCardDefinition(card.cardId).attribute === definition.attribute);
+  return available.some((card) => card.face === 'up' && definitionFor(state, card.cardId).attribute === definition.attribute);
 };
 
-const selectedPayment = (player: PlayerState, cardId: string, paymentIds: string[] | undefined): CardInstance[] | null => {
-  const definition = getCardDefinition(cardId);
+const selectedPayment = (state: GameState, player: PlayerState, cardId: string, paymentIds: string[] | undefined): CardInstance[] | null => {
+  const definition = definitionFor(state, cardId);
   const ids = paymentIds ?? [];
   if (ids.length !== definition.cost || new Set(ids).size !== ids.length) return null;
   const selected = ids.map((id) => player.energy.find((card) => card.instanceId === id && !card.rested));
   if (selected.some((card) => !card)) return null;
   const cards = selected as CardInstance[];
   if (definition.cost > 0 && definition.attribute !== 'none'
-    && !cards.some((card) => card.face === 'up' && getCardDefinition(card.cardId).attribute === definition.attribute)) return null;
+    && !cards.some((card) => card.face === 'up' && definitionFor(state, card.cardId).attribute === definition.attribute)) return null;
   return cards;
 };
 
@@ -271,11 +306,11 @@ const checkDefeat = (state: GameState): void => {
 };
 
 const attackCharge = (state: GameState, player: PlayerState, attacker: CardInstance, rng: Rng): void => {
-  if (getCardDefinition(attacker.cardId).effectIds.includes('charge_zero')) return;
+  if (definitionFor(state, attacker.cardId).effectIds.includes('charge_zero')) return;
   const card = player.deck.shift();
   if (!card) return;
   card.face = 'up';
-  const definition = getCardDefinition(card.cardId);
+  const definition = definitionFor(state, card.cardId);
   if (definition.signal) {
     player.signals.push(card);
     if (definition.effectIds.includes('charge_choice_red')) attacker.temporaryDp = (attacker.temporaryDp ?? 0) + 1;
@@ -314,13 +349,13 @@ const resolveAttack = (state: GameState, rng: Rng): void => {
   const defenderSlot = pending.blockerSlot ?? (pending.target === 'character' ? pending.targetSlot : undefined);
   if (defenderSlot !== undefined) {
     const defender = defenderPlayer.field[defenderSlot];
-    if (defender && effectivePp(attacker) >= effectivePp(defender)) {
+    if (defender && effectivePp(state, attacker) >= effectivePp(state, defender)) {
       defenderPlayer.field[defenderSlot] = null;
       defenderPlayer.graveyard.push(defender);
-      addEvent(state, 'character-destroyed', defenderPlayer.id, `${getCardDefinition(defender.cardId).name} 被战斗破坏`);
+      addEvent(state, 'character-destroyed', defenderPlayer.id, `${definitionFor(state, defender.cardId).name} 被战斗破坏`);
     }
   } else {
-    const amount = effectiveDp(attacker);
+    const amount = effectiveDp(state, attacker);
     damagePlayer(state, defenderPlayer, amount, rng);
     addEvent(state, 'damage', defenderPlayer.id, `${defenderPlayer.id} 受到${amount}点伤害`);
   }
@@ -370,11 +405,11 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
     const index = player.hand.findIndex((card) => card.instanceId === command.instanceId);
     if (index < 0) return reject(state, 'ILLEGAL_ACTION', '卡牌不在手牌中');
     const card = player.hand[index]!;
-    const definition = getCardDefinition(card.cardId);
+    const definition = definitionFor(next, card.cardId);
     const inResponse = Boolean(next.pendingAttack && next.pendingAttack.priorityPlayerId === command.playerId && definition.subtype === 'instant');
     if (!inResponse && (next.phase !== 'main' || next.activePlayerId !== command.playerId || definition.subtype === 'instant')) return reject(state, 'NOT_YOUR_ACTION', '当前不能使用该卡牌');
-    if (!canPay(player, card.cardId)) return reject(state, 'ILLEGAL_ACTION', '费用或属性条件不满足');
-    const payment = selectedPayment(player, card.cardId, command.paymentIds);
+    if (!canPay(next, player, card.cardId)) return reject(state, 'ILLEGAL_ACTION', '费用或属性条件不满足');
+    const payment = selectedPayment(next, player, card.cardId, command.paymentIds);
     if (!payment) return reject(state, 'ILLEGAL_ACTION', '请选择符合费用和属性要求的费用牌');
     pay(player, payment);
     player.hand.splice(index, 1);
@@ -410,7 +445,7 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
       }
     }
     if (definition.effectIds.includes('enter_recover_blue')) {
-      const graveIndex = player.graveyard.findIndex((item) => getCardDefinition(item.cardId).signal === 'blue');
+      const graveIndex = player.graveyard.findIndex((item) => definitionFor(next, item.cardId).signal === 'blue');
       if (graveIndex >= 0) player.signals.push(...player.graveyard.splice(graveIndex, 1));
     }
     if (definition.effectIds.includes('corruption_draw') && next.events.some((event) => event.createdAtTurn === next.turn && event.playerId === player.id && (event.type === 'damage' || event.type === 'deck-refresh'))) {
@@ -429,7 +464,7 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
     addEvent(next, 'signals-eliminated', player.id, `${player.id} 消除三张相邻信号球并抽1张牌`);
   } else if (command.type === 'DECLARE_ATTACK' && next.phase === 'main' && next.activePlayerId === command.playerId && !next.pendingAttack) {
     const attacker = player.field[command.attackerSlot];
-    if (!attacker || attacker.rested || (attacker.enteredTurn === next.turn && !isHaste(attacker))) return reject(state, 'ILLEGAL_ACTION', '该角色不能攻击');
+    if (!attacker || attacker.rested || (attacker.enteredTurn === next.turn && !isHaste(next, attacker))) return reject(state, 'ILLEGAL_ACTION', '该角色不能攻击');
     if (command.target === 'character') {
       const target = next.players[opponentId(next, player.id)]!.field[command.targetSlot ?? -1];
       if (!target?.rested) return reject(state, 'ILLEGAL_ACTION', '只能攻击横置角色');

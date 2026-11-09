@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { RoomManager } from './room-manager.js';
+import { cardDefinitions, developmentDeck } from '@pgr/cards';
 
 describe('RoomManager', () => {
   test('creates a six-character room and lets exactly one opponent join', () => {
@@ -36,5 +37,25 @@ describe('RoomManager', () => {
     now += 10 * 60_000 + 1;
     manager.expireDisconnectedRooms();
     expect(() => manager.resume(credentials)).toThrow('ROOM_NOT_FOUND');
+  });
+
+  test('starts a match with each seats selected deck and snapshots custom definitions', () => {
+    let token = 0;
+    const manager = new RoomManager({ codeGenerator: () => 'CUSTOM', tokenGenerator: () => `token-${token += 1}` });
+    const customDefinition = { ...cardDefinitions.find((card) => card.id === 'DEV-008')!, id: 'CUSTOM-008', name: '玩家二辅助机' };
+    const guestDeck = {
+      ...developmentDeck,
+      id: 'guest-custom',
+      cards: developmentDeck.cards.map((id, index) => id === 'DEV-008' && index === developmentDeck.cards.lastIndexOf('DEV-008') ? 'CUSTOM-008' : id),
+    };
+    const host = manager.createRoom({ playerId: 'user-host', deck: developmentDeck, definitions: cardDefinitions });
+    const guest = manager.joinRoom(host.code, { playerId: 'user-guest', deck: guestDeck, definitions: [...cardDefinitions, customDefinition] });
+
+    manager.setReady(host, true);
+    manager.setReady(guest, true);
+    const game = manager.getSnapshot(host).game!;
+    expect(game.self.id).toBe('user-host');
+    expect(manager.rooms.get(host.code)?.game?.cardDefinitions['CUSTOM-008']?.name).toBe('玩家二辅助机');
+    expect(Object.values(manager.rooms.get(host.code)!.game!.players['user-guest']!).flatMap((value) => Array.isArray(value) ? value : []).some((card) => card?.cardId === 'CUSTOM-008')).toBe(true);
   });
 });
