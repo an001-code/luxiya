@@ -4,6 +4,8 @@ import { Server as SocketServer } from 'socket.io';
 import type { ClientToServerEvents, RoomCredentials, ServerToClientEvents } from '@pgr/protocol';
 import { registerAuthRoutes } from './auth/routes.js';
 import { AuthService } from './auth/service.js';
+import { registerCardRoutes } from './cards/routes.js';
+import { CardService } from './cards/service.js';
 import { createMemoryRepository } from './persistence/memory-repository.js';
 import type { AppRepository } from './persistence/types.js';
 import { RoomManager } from './room-manager.js';
@@ -24,11 +26,12 @@ interface BuildServerOptions {
 export const buildServer = (options: BuildServerOptions = {}) => {
   const manager = options.manager ?? new RoomManager();
   const repository = options.repository ?? createMemoryRepository();
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: false, bodyLimit: 12 * 1024 * 1024 });
   void app.register(cors, { origin: true, credentials: true });
 
   const authService = new AuthService(repository, { ...(options.now ? { now: options.now } : {}) });
-  registerAuthRoutes(app, authService, { secureCookie: process.env.NODE_ENV === 'production' });
+  const authGuard = registerAuthRoutes(app, authService, { secureCookie: process.env.NODE_ENV === 'production' });
+  registerCardRoutes(app, new CardService(repository), authGuard);
 
   app.get('/api/health', async () => ({ ok: true }));
   app.post('/api/rooms', async (_request, reply) => reply.code(201).send(manager.createRoom()));

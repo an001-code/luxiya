@@ -1,4 +1,4 @@
-import type { CardDefinition } from '@pgr/protocol';
+import type { CardDefinition, StructuredEffect } from '@pgr/protocol';
 
 export type UserRole = 'player' | 'admin';
 export type CardStatus = 'draft' | 'published';
@@ -22,7 +22,7 @@ export interface StoredCard extends CardDefinition {
   status: CardStatus;
   version: number;
   rarity?: string;
-  structuredEffects?: unknown[];
+  structuredEffects?: StructuredEffect[];
   imageMime?: 'image/jpeg' | 'image/png' | 'image/webp';
   imageData?: Uint8Array;
   createdAt: string;

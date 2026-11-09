@@ -4,6 +4,28 @@ export type CardSubtype = 'normal' | 'instant' | 'equipment' | 'support';
 export type Attribute = 'fire' | 'lightning' | 'dark' | 'ice' | 'physical' | 'void' | 'none';
 export type SignalColor = 'red' | 'blue' | 'yellow';
 export type Phase = 'mulligan' | 'upright' | 'draw' | 'energy' | 'main' | 'end';
+export type EffectAbility = 'permanent' | 'automatic' | 'activated' | 'enter' | 'instant' | 'charge';
+export type EffectActionType = 'draw' | 'discard' | 'modify_pp' | 'modify_dp' | 'move_card' | 'signal' | 'energy' | 'equip' | 'choose' | 'custom';
+
+export interface StructuredEffectAction {
+  type: EffectActionType;
+  amount?: number | undefined;
+  value?: string | undefined;
+  parameters?: Record<string, string | number | boolean> | undefined;
+}
+
+export interface StructuredEffect {
+  id: string;
+  ability: EffectAbility;
+  trigger?: string | undefined;
+  conditions?: string[] | undefined;
+  costs?: string[] | undefined;
+  targets?: string[] | undefined;
+  actions: StructuredEffectAction[];
+  duration?: string | undefined;
+  oncePerTurn?: boolean | undefined;
+  handlerId?: string | undefined;
+}
 
 export interface CardDefinition {
   id: string;
@@ -18,6 +40,8 @@ export interface CardDefinition {
   signal?: SignalColor;
   text: string[];
   effectIds: string[];
+  structuredEffects?: StructuredEffect[];
+  rarity?: string;
   artPath?: string;
 }
 

@@ -1,5 +1,6 @@
 import { createPool, type Pool, type PoolConnection, type PoolOptions, type RowDataPacket } from 'mysql2/promise';
 import { migrateDatabase } from './migrations.js';
+import type { StructuredEffect } from '@pgr/protocol';
 import type {
   AppRepository,
   CardListFilter,
@@ -42,7 +43,7 @@ interface CardRow extends RowDataPacket {
   signal_color: StoredCard['signal'] | null;
   rules_text: string | string[];
   effect_ids: string | string[];
-  structured_effects: string | unknown[];
+  structured_effects: string | StructuredEffect[];
   art_path: string | null;
   rarity: string | null;
   status: CardStatus;
@@ -94,7 +95,7 @@ const toCard = (row: CardRow): StoredCard => ({
   ...(row.signal_color ? { signal: row.signal_color } : {}),
   text: parseJson<string[]>(row.rules_text),
   effectIds: parseJson<string[]>(row.effect_ids),
-  structuredEffects: parseJson<unknown[]>(row.structured_effects),
+  structuredEffects: parseJson<StructuredEffect[]>(row.structured_effects),
   ...(row.art_path ? { artPath: row.art_path } : {}),
   ...(row.rarity ? { rarity: row.rarity } : {}),
   status: row.status,
