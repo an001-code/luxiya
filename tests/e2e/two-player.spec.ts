@@ -29,6 +29,15 @@ test('two guests join by room code, start a hidden-information game and concede'
   await expect(host.locator('.opponent-hand strong')).toHaveText('4');
   await expect(host.locator('.opponent-hand button')).toHaveCount(0);
 
+  const signalSlotBox = await host.locator('.resource-panel.self .signal-slot').first().boundingBox();
+  const energySlotBox = await host.locator('.resource-panel.self .energy-slot').first().boundingBox();
+  expect(signalSlotBox?.width).toBeGreaterThanOrEqual(48);
+  expect(signalSlotBox?.height).toBeGreaterThanOrEqual(68);
+  expect(energySlotBox?.width).toBeGreaterThanOrEqual(56);
+  expect(energySlotBox?.height).toBeGreaterThanOrEqual(76);
+  const arenaBackground = await host.locator('.arena-backdrop').evaluate((element) => getComputedStyle(element).backgroundImage);
+  expect(arenaBackground).toContain('arena-background');
+
   const openingCard = host.locator('.hand-cards .mini-card').first();
   const openingCardName = await openingCard.getAttribute('title');
   await openingCard.click();

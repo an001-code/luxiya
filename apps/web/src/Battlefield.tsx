@@ -43,10 +43,11 @@ function ResourcePanel({ board, side, onView, onPayment, paymentIds, onEliminate
       <div className="signal-grid">
         {Array.from({ length: signalSlots }, (_, index) => {
           const card = board.signals[index];
-          const signal = card?.cardId ? getCardDefinition(card.cardId).signal : null;
+          const definition = card?.cardId ? getCardDefinition(card.cardId) : null;
+          const signal = definition?.signal ?? null;
           return card ? (
             <button data-card-view={card.instanceId} className={`signal-slot ${signal ?? ''}`} key={card.instanceId} data-signal-slot={index} onClick={() => onView(card)} title={cardName(card)}>
-              <b>{signal?.slice(0, 1).toUpperCase() ?? '?'}</b><small>{index + 1}</small>
+              <span className="resource-card-cost">{definition?.cost ?? '?'}</span><b className="resource-card-art">{definition?.name.slice(0, 1) ?? '◆'}</b><strong>{definition?.name ?? '隐藏卡牌'}</strong><small>{index + 1}</small>
             </button>
           ) : <div className="signal-slot empty" key={index} data-signal-slot={index}><small>{index + 1}</small></div>;
         })}
@@ -58,7 +59,8 @@ function ResourcePanel({ board, side, onView, onPayment, paymentIds, onEliminate
           const card = board.energy[index];
           if (!card) return <div className="energy-slot empty" key={index} data-energy-slot={index}><span>+</span></div>;
           const selectable = Boolean(onPayment && !card.rested);
-          return <button data-card-view={card.instanceId} className={`energy-slot ${card.rested ? 'rested' : ''} ${card.face === 'down' ? 'facedown' : ''} ${selectable ? 'pay-selectable' : ''} ${paymentIds.has(card.instanceId) ? 'payment-selected' : ''}`} key={card.instanceId} data-energy-slot={index} onClick={() => { onView(card); onPayment?.(card); }} title={cardName(card)}><span>{card.cardId ? getCardDefinition(card.cardId).attribute.slice(0, 2) : '暗'}</span>{paymentIds.has(card.instanceId) && <b>支付</b>}</button>;
+          const definition = card.cardId ? getCardDefinition(card.cardId) : null;
+          return <button data-card-view={card.instanceId} className={`energy-slot ${card.rested ? 'rested' : ''} ${card.face === 'down' ? 'facedown' : ''} ${selectable ? 'pay-selectable' : ''} ${paymentIds.has(card.instanceId) ? 'payment-selected' : ''}`} key={card.instanceId} data-energy-slot={index} onClick={() => { onView(card); onPayment?.(card); }} title={cardName(card)}><span className="resource-card-cost">{definition?.cost ?? '?'}</span><b className="resource-card-art">{definition?.name.slice(0, 1) ?? '◆'}</b><strong>{definition?.attribute.slice(0, 2) ?? '暗费'}</strong>{paymentIds.has(card.instanceId) && <span className="payment-mark">支付</span>}</button>;
         })}
       </div>
     </section>
