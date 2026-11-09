@@ -6,6 +6,8 @@ import { registerAuthRoutes } from './auth/routes.js';
 import { AuthService } from './auth/service.js';
 import { registerCardRoutes } from './cards/routes.js';
 import { CardService } from './cards/service.js';
+import { registerDeckRoutes } from './decks/routes.js';
+import { DeckService } from './decks/service.js';
 import { createMemoryRepository } from './persistence/memory-repository.js';
 import type { AppRepository } from './persistence/types.js';
 import { RoomManager } from './room-manager.js';
@@ -32,6 +34,7 @@ export const buildServer = (options: BuildServerOptions = {}) => {
   const authService = new AuthService(repository, { ...(options.now ? { now: options.now } : {}) });
   const authGuard = registerAuthRoutes(app, authService, { secureCookie: process.env.NODE_ENV === 'production' });
   registerCardRoutes(app, new CardService(repository), authGuard);
+  registerDeckRoutes(app, new DeckService(repository), authGuard);
 
   app.get('/api/health', async () => ({ ok: true }));
   app.post('/api/rooms', async (_request, reply) => reply.code(201).send(manager.createRoom()));
