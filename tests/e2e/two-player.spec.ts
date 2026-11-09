@@ -1,0 +1,39 @@
+import { expect, test } from '@playwright/test';
+
+test('two guests join by room code, start a hidden-information game and concede', async ({ browser }, testInfo) => {
+  const hostContext = await browser.newContext();
+  const guestContext = await browser.newContext();
+  const host = await hostContext.newPage();
+  const guest = await guestContext.newPage();
+  await host.setViewportSize({ width: 1920, height: 1080 });
+  await guest.setViewportSize({ width: 1920, height: 1080 });
+
+  await host.goto('/');
+  await host.getByRole('button', { name: '创建房间' }).click();
+  const code = await host.locator('.lobby-card h1').textContent();
+  expect(code).toMatch(/^[A-Z0-9]{6}$/);
+
+  await guest.goto('/');
+  await guest.getByPlaceholder('房间码').fill(code!);
+  await guest.getByRole('button', { name: '加入' }).click();
+  await expect(guest.locator('.lobby-card h1')).toHaveText(code!);
+
+  await host.getByRole('button', { name: '选择开发牌组并准备' }).click();
+  await guest.getByRole('button', { name: '选择开发牌组并准备' }).click();
+  await expect(host.locator('.battlefield-shell')).toBeVisible();
+  await expect(guest.locator('.battlefield-shell')).toBeVisible();
+  await expect(host.locator('[data-field-slot]')).toHaveCount(10);
+  await expect(host.locator('[data-energy-slot]')).toHaveCount(20);
+  await expect(host.locator('.opponent-hand strong')).toHaveText('4');
+  await host.screenshot({ path: testInfo.outputPath('battlefield-1920.png'), fullPage: true });
+  await host.setViewportSize({ width: 1280, height: 720 });
+  await expect(host.locator('.battlefield-shell')).toBeVisible();
+  await host.screenshot({ path: testInfo.outputPath('battlefield-1280.png'), fullPage: true });
+
+  await host.getByRole('button', { name: '认输' }).click();
+  await expect(guest.getByText('胜利')).toBeVisible();
+  await expect(host.getByText('败北')).toBeVisible();
+
+  await hostContext.close();
+  await guestContext.close();
+});

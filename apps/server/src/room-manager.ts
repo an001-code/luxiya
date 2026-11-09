@@ -1,0 +1,140 @@
+import { randomBytes, randomUUID } from 'node:crypto';
+import { developmentDeck } from '@pgr/cards';
+import { applyCommand, createGame, createPlayerView } from '@pgr/game-core';
+import type { GameCommand, GameState, RoomCredentials, RoomSnapshot } from '@pgr/protocol';
+
+interface Seat {
+  playerId: string;
+  token: string;
+  ready: boolean;
+  connected: boolean;
+  disconnectedAt?: number;
+}
+
+interface Room {
+  code: string;
+  seats: Seat[];
+  game?: GameState;
+}
+
+interface RoomManagerOptions {
+  codeGenerator?: () => string;
+  tokenGenerator?: () => string;
+  now?: () => number;
+}
+
+const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const randomCode = (): string => Array.from(randomBytes(6), (byte) => alphabet[byte % alphabet.length]).join('');
+
+export class RoomManager {
+  readonly rooms = new Map<string, Room>();
+  private readonly codeGenerator: () => string;
+  private readonly tokenGenerator: () => string;
+  private readonly now: () => number;
+
+  constructor(options: RoomManagerOptions = {}) {
+    this.codeGenerator = options.codeGenerator ?? randomCode;
+    this.tokenGenerator = options.tokenGenerator ?? randomUUID;
+    this.now = options.now ?? Date.now;
+  }
+
+  createRoom(): RoomCredentials {
+    let code = this.codeGenerator().toUpperCase();
+    for (let attempt = 0; this.rooms.has(code) && attempt < 10; attempt += 1) code = this.codeGenerator().toUpperCase();
+    if (this.rooms.has(code)) throw new Error('ROOM_CODE_EXHAUSTED');
+    const credentials = { code, playerId: `p-${randomUUID()}`, token: this.tokenGenerator() };
+    this.rooms.set(code, { code, seats: [{ ...credentials, ready: false, connected: true }] });
+    return credentials;
+  }
+
+  joinRoom(codeInput: string): RoomCredentials {
+    const code = codeInput.toUpperCase();
+    const room = this.rooms.get(code);
+    if (!room) throw new Error('ROOM_NOT_FOUND');
+    if (room.seats.length >= 2) throw new Error('ROOM_FULL');
+    const credentials = { code, playerId: `p-${randomUUID()}`, token: this.tokenGenerator() };
+    room.seats.push({ ...credentials, ready: false, connected: true });
+    return credentials;
+  }
+
+  resume(credentials: RoomCredentials): RoomCredentials {
+    const room = this.requireRoom(credentials.code);
+    const seat = this.requireSeat(credentials);
+    seat.connected = true;
+    delete seat.disconnectedAt;
+    if (room.game?.status === 'paused' && room.seats.every((item) => item.connected)) room.game.status = 'playing';
+    return credentials;
+  }
+
+  setReady(credentials: RoomCredentials, ready: boolean): void {
+    const room = this.requireRoom(credentials.code);
+    const seat = this.requireSeat(credentials);
+    seat.ready = ready;
+    if (!room.game && room.seats.length === 2 && room.seats.every((item) => item.ready)) {
+      room.game = createGame([room.seats[0]!.playerId, room.seats[1]!.playerId], developmentDeck, Math.random);
+    }
+  }
+
+  applyCommand(credentials: RoomCredentials, command: GameCommand): ReturnType<typeof applyCommand> {
+    const room = this.requireRoom(credentials.code);
+    this.requireSeat(credentials);
+    if (!room.game) throw new Error('GAME_NOT_STARTED');
+    if (command.playerId !== credentials.playerId) throw new Error('PLAYER_MISMATCH');
+    const result = applyCommand(room.game, command, Math.random);
+    if (result.accepted) room.game = result.state;
+    return result;
+  }
+
+  concede(credentials: RoomCredentials): ReturnType<typeof applyCommand> {
+    const room = this.requireRoom(credentials.code);
+    if (!room.game) throw new Error('GAME_NOT_STARTED');
+    return this.applyCommand(credentials, {
+      type: 'CONCEDE', commandId: randomUUID(), playerId: credentials.playerId, expectedVersion: room.game.version,
+    });
+  }
+
+  markDisconnected(credentials: RoomCredentials): void {
+    const seat = this.requireSeat(credentials);
+    seat.connected = false;
+    seat.disconnectedAt = this.now();
+    const room = this.requireRoom(credentials.code);
+    if (room.game && room.game.status === 'playing') room.game.status = 'paused';
+  }
+
+  expireDisconnectedRooms(): void {
+    const deadline = this.now() - 10 * 60_000;
+    for (const [code, room] of this.rooms) {
+      if (room.seats.some((seat) => !seat.connected && (seat.disconnectedAt ?? Infinity) <= deadline)) this.rooms.delete(code);
+    }
+  }
+
+  getSnapshot(credentials: RoomCredentials): RoomSnapshot {
+    const room = this.requireRoom(credentials.code);
+    this.requireSeat(credentials);
+    const connectedSeats = room.seats.filter((seat) => seat.connected).length;
+    const status = room.game
+      ? room.game.status
+      : 'waiting';
+    return {
+      code: room.code,
+      status: status === 'playing' && connectedSeats < room.seats.length ? 'paused' : status,
+      seats: room.seats.map(({ playerId, connected, ready }) => ({ playerId, connected, ready })),
+      viewerId: credentials.playerId,
+      ...(room.game ? { game: createPlayerView(room.game, credentials.playerId) } : {}),
+    };
+  }
+
+  private requireRoom(code: string): Room {
+    const room = this.rooms.get(code.toUpperCase());
+    if (!room) throw new Error('ROOM_NOT_FOUND');
+    return room;
+  }
+
+  private requireSeat(credentials: RoomCredentials): Seat {
+    const room = this.requireRoom(credentials.code);
+    const seat = room.seats.find((item) => item.playerId === credentials.playerId && item.token === credentials.token);
+    if (!seat) throw new Error('INVALID_CREDENTIALS');
+    return seat;
+  }
+}
+

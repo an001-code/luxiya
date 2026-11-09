@@ -1,0 +1,88 @@
+import cors from '@fastify/cors';
+import Fastify from 'fastify';
+import { Server as SocketServer } from 'socket.io';
+import type { ClientToServerEvents, RoomCredentials, ServerToClientEvents } from '@pgr/protocol';
+import { RoomManager } from './room-manager.js';
+
+const statusForError = (error: unknown): number => {
+  const message = error instanceof Error ? error.message : '';
+  if (message === 'ROOM_NOT_FOUND') return 404;
+  if (message === 'ROOM_FULL') return 409;
+  return 400;
+};
+
+export const buildServer = (manager = new RoomManager()) => {
+  const app = Fastify({ logger: false });
+  void app.register(cors, { origin: true });
+
+  app.get('/api/health', async () => ({ ok: true }));
+  app.post('/api/rooms', async (_request, reply) => reply.code(201).send(manager.createRoom()));
+  app.post<{ Params: { code: string } }>('/api/rooms/:code/join', async (request, reply) => {
+    try { return manager.joinRoom(request.params.code); }
+    catch (error) { return reply.code(statusForError(error)).send({ error: error instanceof Error ? error.message : 'UNKNOWN' }); }
+  });
+
+  const io = new SocketServer<ClientToServerEvents, ServerToClientEvents>(app.server, {
+    cors: { origin: 'http://localhost:5173' },
+  });
+
+  const emitRoom = (code: string): void => {
+    const room = manager.rooms.get(code);
+    if (!room) return;
+    for (const socket of io.sockets.sockets.values()) {
+      const credentials = socket.data.credentials as RoomCredentials | undefined;
+      if (credentials?.code === code) {
+        const snapshot = manager.getSnapshot(credentials);
+        socket.emit('room:snapshot', snapshot);
+        if (snapshot.game) socket.emit('game:snapshot', snapshot.game);
+      }
+    }
+  };
+
+  io.on('connection', (socket) => {
+    socket.on('room:resume', (credentials) => {
+      try {
+        manager.resume(credentials);
+        socket.data.credentials = credentials;
+        void socket.join(credentials.code);
+        emitRoom(credentials.code);
+        socket.to(credentials.code).emit('opponent:connection', true);
+      } catch { socket.disconnect(true); }
+    });
+    socket.on('room:ready', (ready) => {
+      const credentials = socket.data.credentials as RoomCredentials | undefined;
+      if (!credentials) return;
+      manager.setReady(credentials, ready);
+      emitRoom(credentials.code);
+    });
+    socket.on('game:command', (command) => {
+      const credentials = socket.data.credentials as RoomCredentials | undefined;
+      if (!credentials) return;
+      const result = manager.applyCommand(credentials, command);
+      if (!result.accepted && result.rejection) socket.emit('command:rejected', result.rejection);
+      else {
+        io.to(credentials.code).emit('game:events', result.emittedEvents);
+        emitRoom(credentials.code);
+      }
+    });
+    socket.on('game:concede', () => {
+      const credentials = socket.data.credentials as RoomCredentials | undefined;
+      if (!credentials) return;
+      manager.concede(credentials);
+      emitRoom(credentials.code);
+    });
+    socket.on('disconnect', () => {
+      const credentials = socket.data.credentials as RoomCredentials | undefined;
+      if (!credentials) return;
+      manager.markDisconnected(credentials);
+      socket.to(credentials.code).emit('opponent:connection', false);
+      emitRoom(credentials.code);
+    });
+  });
+
+  const expirationTimer = setInterval(() => manager.expireDisconnectedRooms(), 30_000);
+  expirationTimer.unref();
+  app.addHook('onClose', async () => { clearInterval(expirationTimer); io.close(); });
+  return app;
+};
+

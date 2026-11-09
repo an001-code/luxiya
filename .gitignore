@@ -1,0 +1,12 @@
+node_modules/
+dist/
+types/
+coverage/
+playwright-report/
+test-results/
+.vite/
+.superpowers/
+.env
+*.log
+*.tsbuildinfo
+

@@ -1,0 +1,1 @@
+{"extends":"../../tsconfig.base.json","compilerOptions":{"composite":true,"rootDir":"src","outDir":"dist"},"include":["src"],"references":[{"path":"../../packages/protocol"},{"path":"../../packages/cards"},{"path":"../../packages/game-core"}]}

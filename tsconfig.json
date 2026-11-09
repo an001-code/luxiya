@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/protocol" },
+    { "path": "packages/cards" },
+    { "path": "packages/game-core" },
+    { "path": "apps/server" },
+    { "path": "apps/web" }
+  ]
+}
+

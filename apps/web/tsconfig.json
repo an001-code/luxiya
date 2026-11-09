@@ -1,0 +1,1 @@
+{"extends":"../../tsconfig.base.json","compilerOptions":{"composite":true,"rootDir":".","outDir":"types","jsx":"react-jsx","module":"ESNext","moduleResolution":"Bundler","declaration":true,"emitDeclarationOnly":true},"include":["src","vite.config.ts"],"references":[{"path":"../../packages/protocol"},{"path":"../../packages/cards"}]}
