@@ -2,6 +2,10 @@ import cors from '@fastify/cors';
 import Fastify from 'fastify';
 import { Server as SocketServer } from 'socket.io';
 import type { ClientToServerEvents, RoomCredentials, ServerToClientEvents } from '@pgr/protocol';
+import { registerAuthRoutes } from './auth/routes.js';
+import { AuthService } from './auth/service.js';
+import { createMemoryRepository } from './persistence/memory-repository.js';
+import type { AppRepository } from './persistence/types.js';
 import { RoomManager } from './room-manager.js';
 
 const statusForError = (error: unknown): number => {
@@ -11,9 +15,20 @@ const statusForError = (error: unknown): number => {
   return 400;
 };
 
-export const buildServer = (manager = new RoomManager()) => {
+interface BuildServerOptions {
+  manager?: RoomManager;
+  repository?: AppRepository;
+  now?: () => Date;
+}
+
+export const buildServer = (options: BuildServerOptions = {}) => {
+  const manager = options.manager ?? new RoomManager();
+  const repository = options.repository ?? createMemoryRepository();
   const app = Fastify({ logger: false });
-  void app.register(cors, { origin: true });
+  void app.register(cors, { origin: true, credentials: true });
+
+  const authService = new AuthService(repository, { ...(options.now ? { now: options.now } : {}) });
+  registerAuthRoutes(app, authService, { secureCookie: process.env.NODE_ENV === 'production' });
 
   app.get('/api/health', async () => ({ ok: true }));
   app.post('/api/rooms', async (_request, reply) => reply.code(201).send(manager.createRoom()));
@@ -82,7 +97,7 @@ export const buildServer = (manager = new RoomManager()) => {
 
   const expirationTimer = setInterval(() => manager.expireDisconnectedRooms(), 30_000);
   expirationTimer.unref();
-  app.addHook('onClose', async () => { clearInterval(expirationTimer); io.close(); });
+  app.addHook('onClose', async () => { clearInterval(expirationTimer); io.close(); await repository.close(); });
   return app;
 };
 

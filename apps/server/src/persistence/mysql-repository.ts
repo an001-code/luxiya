@@ -1,4 +1,5 @@
 import { createPool, type Pool, type PoolConnection, type PoolOptions, type RowDataPacket } from 'mysql2/promise';
+import { migrateDatabase } from './migrations.js';
 import type {
   AppRepository,
   CardListFilter,
@@ -277,3 +278,17 @@ export const createMySqlRepository = (config: MySqlRepositoryConfig): AppReposit
   const pool = createPool({ ...config, dateStrings: true, connectionLimit: config.connectionLimit ?? 10 });
   return new MySqlRepository(pool, pool);
 };
+
+export const connectMySqlRepository = async (config: MySqlRepositoryConfig): Promise<AppRepository> => {
+  const pool = createPool({ ...config, dateStrings: true, connectionLimit: config.connectionLimit ?? 10 });
+  await migrateDatabase(pool);
+  return new MySqlRepository(pool, pool);
+};
+
+export const mysqlConfigFromEnv = (): MySqlRepositoryConfig => ({
+  host: process.env.MYSQL_HOST ?? '127.0.0.1',
+  port: Number(process.env.MYSQL_PORT ?? 3306),
+  user: process.env.MYSQL_USER ?? 'root',
+  password: process.env.MYSQL_PASSWORD ?? '',
+  database: process.env.MYSQL_DATABASE ?? 'pgr_card_battle',
+});
