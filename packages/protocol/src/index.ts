@@ -65,7 +65,11 @@ export interface EffectFrame {
   controllerId: PlayerId;
   effect: StructuredEffect;
   status: 'resolving' | 'waiting-for-decision';
+  stage: 'targets' | 'costs' | 'actions';
   targetIndex: number;
+  costIndex: number;
+  costsPaid: boolean;
+  cancelled?: boolean;
   actionIndex: number;
   selectedTargets: Record<string, string[]>;
   selectedOptionId?: string;
@@ -83,6 +87,7 @@ export interface PendingDecision {
   frameId: string;
   playerId: PlayerId;
   kind: 'select-cards' | 'choose-option' | 'confirm' | 'order-cards';
+  purpose: 'target' | 'cost' | 'choice' | 'optional';
   prompt: string;
   min: number;
   max: number;
@@ -99,6 +104,9 @@ export interface ContinuousModifier {
   kind: 'stat' | 'signal-as' | 'cost' | 'keyword';
   targetInstanceIds: string[];
   value: number | string;
+  stat?: 'pp' | 'dp' | 'charge';
+  operation?: 'add' | 'set';
+  count?: number;
   duration: EffectDuration;
   createdTurn: number;
 }

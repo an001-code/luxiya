@@ -67,6 +67,7 @@ const makeDecision = (state: GameState, frame: EffectFrame, target: Extract<Effe
     frameId: frame.id,
     playerId: frame.controllerId,
     kind: target.ordered ? 'order-cards' : 'select-cards',
+    purpose: 'target',
     prompt: `请选择 ${target.min}-${target.max} 张卡牌`,
     min: target.min,
     max: target.max,
@@ -86,7 +87,7 @@ const makeDecision = (state: GameState, frame: EffectFrame, target: Extract<Effe
   };
 };
 
-const advanceFrameTargets = (state: GameState, frame: EffectFrame): void => {
+export const advanceEffectFrameTargets = (state: GameState, frame: EffectFrame): void => {
   while (frame.targetIndex < frame.effect.targets.length) {
     const target = frame.effect.targets[frame.targetIndex]!;
     if (target.kind === 'player') {
@@ -95,8 +96,20 @@ const advanceFrameTargets = (state: GameState, frame: EffectFrame): void => {
       continue;
     }
     const decision = makeDecision(state, frame, target);
+    if (decision.options.length < target.min) {
+      frame.cancelled = true;
+      frame.stage = 'actions';
+      frame.status = 'resolving';
+      state.pendingDecision = null;
+      return;
+    }
     if (decision.options.length === 0 && target.min === 0) {
       frame.selectedTargets[target.id] = [];
+      frame.targetIndex += 1;
+      continue;
+    }
+    if (!target.optional && target.min === target.max && decision.options.length === target.min) {
+      frame.selectedTargets[target.id] = decision.options.flatMap((option) => option.instanceId ? [option.instanceId] : []);
       frame.targetIndex += 1;
       continue;
     }
@@ -105,25 +118,31 @@ const advanceFrameTargets = (state: GameState, frame: EffectFrame): void => {
     return;
   }
   frame.status = 'resolving';
+  frame.stage = 'costs';
   state.pendingDecision = null;
 };
 
 export const startEffectResolution = (state: GameState, input: StartEffectResolutionInput): GameState => {
   const next = structuredClone(state);
-  const frame: EffectFrame = {
-    id: `effect-${next.turn}-${next.effectStack.length + 1}-${input.effect.id}`,
-    sourceInstanceId: input.sourceInstanceId,
-    controllerId: input.controllerId,
-    effect: structuredClone(input.effect),
-    status: 'resolving',
-    targetIndex: 0,
-    actionIndex: 0,
-    selectedTargets: {},
-  };
+  const frame = createEffectFrame(next, input);
   next.effectStack.push(frame);
-  advanceFrameTargets(next, frame);
+  advanceEffectFrameTargets(next, frame);
   return next;
 };
+
+export const createEffectFrame = (state: GameState, input: StartEffectResolutionInput): EffectFrame => ({
+  id: `effect-${state.turn}-${state.effectStack.length + 1}-${input.effect.id}`,
+  sourceInstanceId: input.sourceInstanceId,
+  controllerId: input.controllerId,
+  effect: structuredClone(input.effect),
+  status: 'resolving',
+  stage: 'targets',
+  targetIndex: 0,
+  costIndex: 0,
+  costsPaid: false,
+  actionIndex: 0,
+  selectedTargets: {},
+});
 
 export const resolveEffectDecision = (state: GameState, command: DecisionCommand): DecisionResolution => {
   const decision = state.pendingDecision;
@@ -150,8 +169,13 @@ export const resolveEffectDecision = (state: GameState, command: DecisionCommand
   if (!frame) return { accepted: false, code: 'ILLEGAL_ACTION', message: '效果结算帧不存在' };
   if (current.targetId) frame.selectedTargets[current.targetId] = [...selectedIds];
   if (command.optionId) frame.selectedOptionId = command.optionId;
-  frame.targetIndex += 1;
   next.pendingDecision = null;
-  advanceFrameTargets(next, frame);
+  frame.status = 'resolving';
+  if (current.purpose === 'target') {
+    frame.targetIndex += 1;
+    advanceEffectFrameTargets(next, frame);
+  } else if (current.purpose === 'cost') {
+    frame.costIndex += 1;
+  }
   return { accepted: true, state: next };
 };

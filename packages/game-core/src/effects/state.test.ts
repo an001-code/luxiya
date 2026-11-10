@@ -11,7 +11,7 @@ const targetEffect: StructuredEffect = {
     id: 'character', kind: 'cards', player: 'self', zone: 'field', min: 1, max: 1,
     filter: { types: ['character'] },
   }],
-  actions: [{ kind: 'draw', player: 'self', amount: { kind: 'fixed', value: 1 } }],
+  actions: [{ kind: 'rest', targetId: 'character' }],
 };
 
 const gameWaitingForTarget = () => {
@@ -80,9 +80,8 @@ describe('authoritative effect decisions', () => {
     }, sequenceRng([0.1]));
     expect(result.accepted).toBe(true);
     expect(result.state.pendingDecision).toBeNull();
-    expect(result.state.effectStack.at(-1)).toMatchObject({
-      status: 'resolving', selectedTargets: { character: ['target-2'] },
-    });
+    expect(result.state.players[state.activePlayerId]!.field[1]?.rested).toBe(true);
+    expect(result.state.effectStack).toEqual([]);
   });
 
   test('serializes a decision only for its owner and never leaks it to the opponent', () => {

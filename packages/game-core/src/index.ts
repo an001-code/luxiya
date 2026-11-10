@@ -15,9 +15,12 @@ import type {
   PublicCardView,
 } from '@pgr/protocol';
 import { resolveEffectDecision } from './effects/state.js';
+import { continueEffectResolution } from './effects/interpreter.js';
 
 export { registeredCustomEffectHandlers, validateExecutableEffect } from './effects/capabilities.js';
 export { resolveEffectDecision, startEffectResolution } from './effects/state.js';
+export { continueEffectResolution, enqueueEffects } from './effects/interpreter.js';
+export { selectCardInstanceIds } from './effects/selectors.js';
 
 export type Rng = () => number;
 
@@ -166,11 +169,18 @@ const isHaste = (state: GameState, card: CardInstance): boolean => {
   return effects.includes('weapon_haste') && Boolean(card.attached?.some((item) => definitionFor(state, item.cardId).traits.includes('封刃太刀')));
 };
 
-const effectivePp = (state: GameState, card: CardInstance): number => (definitionFor(state, card.cardId).pp ?? 0)
-  + (card.attached ?? []).reduce((sum, item) => sum + (definitionFor(state, item.cardId).pp ?? 0), 0)
-  + (card.temporaryPp ?? 0);
+const effectiveStat = (state: GameState, card: CardInstance, stat: 'pp' | 'dp', base: number): number =>
+  state.continuousModifiers
+    .filter((modifier) => modifier.kind === 'stat' && modifier.stat === stat && modifier.targetInstanceIds.includes(card.instanceId))
+    .reduce((value, modifier) => modifier.operation === 'set' ? Number(modifier.value) : value + Number(modifier.value), base);
 
-const effectiveDp = (state: GameState, card: CardInstance): number => (definitionFor(state, card.cardId).dp ?? 0) + (card.temporaryDp ?? 0);
+const effectivePp = (state: GameState, card: CardInstance): number => effectiveStat(state, card, 'pp',
+  (definitionFor(state, card.cardId).pp ?? 0)
+  + (card.attached ?? []).reduce((sum, item) => sum + (definitionFor(state, item.cardId).pp ?? 0), 0)
+  + (card.temporaryPp ?? 0));
+
+const effectiveDp = (state: GameState, card: CardInstance): number => effectiveStat(state, card, 'dp',
+  (definitionFor(state, card.cardId).dp ?? 0) + (card.temporaryDp ?? 0));
 
 export const getLegalActions = (state: GameState, playerId: string): LegalAction[] => {
   if (state.status !== 'playing') return [];
@@ -259,6 +269,7 @@ export const createPlayerView = (state: GameState, playerId: PlayerId): PlayerVi
       id: state.pendingDecision.id,
       frameId: state.pendingDecision.frameId,
       kind: state.pendingDecision.kind,
+      purpose: state.pendingDecision.purpose,
       prompt: state.pendingDecision.prompt,
       min: state.pendingDecision.min,
       max: state.pendingDecision.max,
@@ -375,7 +386,11 @@ const resolveAttack = (state: GameState, rng: Rng): void => {
   const attackerPlayer = state.players[state.activePlayerId]!;
   const defenderPlayer = state.players[opponentId(state, state.activePlayerId)]!;
   const attacker = attackerPlayer.field[pending.attackerSlot];
-  if (!attacker) { state.pendingAttack = null; return; }
+  if (!attacker) {
+    state.continuousModifiers = state.continuousModifiers.filter((modifier) => modifier.duration.kind !== 'attack');
+    state.pendingAttack = null;
+    return;
+  }
   attackCharge(state, attackerPlayer, attacker, rng);
   const defenderSlot = pending.blockerSlot ?? (pending.target === 'character' ? pending.targetSlot : undefined);
   if (defenderSlot !== undefined) {
@@ -390,6 +405,7 @@ const resolveAttack = (state: GameState, rng: Rng): void => {
     damagePlayer(state, defenderPlayer, amount, rng);
     addEvent(state, 'damage', defenderPlayer.id, `${defenderPlayer.id} 受到${amount}点伤害`);
   }
+  state.continuousModifiers = state.continuousModifiers.filter((modifier) => modifier.duration.kind !== 'attack');
   state.pendingAttack = null;
 };
 
@@ -403,6 +419,7 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
     const resolution = resolveEffectDecision(state, command);
     if (!resolution.accepted) return reject(state, resolution.code, resolution.message);
     const resolved = resolution.state;
+    continueEffectResolution(resolved, rng);
     resolved.version += 1;
     resolved.processedCommandIds.push(command.commandId);
     return {
@@ -541,6 +558,11 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
     }
     while (player.hand.length > 7) player.graveyard.push(player.hand.pop()!);
     for (const card of player.field) if (card) { delete card.temporaryPp; delete card.temporaryDp; }
+    next.continuousModifiers = next.continuousModifiers.filter((modifier) => {
+      if (modifier.duration.kind === 'turn') return false;
+      if (modifier.duration.kind === 'next-turn' && modifier.controllerId === command.playerId && next.turn > modifier.createdTurn) return false;
+      return true;
+    });
     next.activePlayerId = opponentId(next, command.playerId);
     next.phase = 'upright';
     next.turn += 1;

@@ -65,7 +65,7 @@ describe('effect decision panel', () => {
     const html = renderToStaticMarkup(<Battlefield view={{
       ...view,
       pendingDecision: {
-        id: 'decision-1', frameId: 'frame-1', kind: 'select-cards', prompt: 'Choose one character',
+        id: 'decision-1', frameId: 'frame-1', kind: 'select-cards', purpose: 'target', prompt: 'Choose one character',
         min: 1, max: 1, targetId: 'character',
         options: [{ id: 'target-1', label: 'Test character', instanceId: 'target-1', cardId: 'DEV-001' }],
       },
