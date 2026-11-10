@@ -2,6 +2,7 @@ import type { CardDefinition, StructuredEffect } from '@pgr/protocol';
 
 export type UserRole = 'player' | 'admin';
 export type CardStatus = 'draft' | 'published';
+export const CURRENT_EFFECT_SCHEMA_VERSION = 1;
 
 export interface UserRecord {
   id: string;
@@ -21,6 +22,7 @@ export interface SessionRecord {
 export interface StoredCard extends CardDefinition {
   status: CardStatus;
   version: number;
+  effectSchemaVersion: number;
   rarity?: string;
   structuredEffects?: StructuredEffect[];
   imageMime?: 'image/jpeg' | 'image/png' | 'image/webp';

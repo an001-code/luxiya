@@ -37,11 +37,13 @@ export const migrationStatements = [
     rarity VARCHAR(24) NULL,
     status ENUM('draft', 'published') NOT NULL DEFAULT 'draft',
     version INT UNSIGNED NOT NULL DEFAULT 1,
+    effect_schema_version INT UNSIGNED NOT NULL DEFAULT 0,
     image_mime VARCHAR(32) NULL,
     image_data LONGBLOB NULL,
     created_at VARCHAR(30) NOT NULL,
     updated_at VARCHAR(30) NOT NULL
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  `ALTER TABLE cards ADD COLUMN effect_schema_version INT UNSIGNED NOT NULL DEFAULT 0 AFTER version`,
   `CREATE TABLE IF NOT EXISTS decks (
     id CHAR(36) PRIMARY KEY,
     user_id CHAR(36) NOT NULL,
@@ -65,5 +67,12 @@ export const migrationStatements = [
 ] as const;
 
 export const migrateDatabase = async (executor: MigrationExecutor): Promise<void> => {
-  for (const statement of migrationStatements) await executor.query(statement);
+  for (const statement of migrationStatements) {
+    try {
+      await executor.query(statement);
+    } catch (error) {
+      const duplicateColumn = typeof error === 'object' && error !== null && 'code' in error && error.code === 'ER_DUP_FIELDNAME';
+      if (!duplicateColumn) throw error;
+    }
+  }
 };

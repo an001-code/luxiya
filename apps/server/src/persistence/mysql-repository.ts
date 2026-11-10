@@ -48,6 +48,7 @@ interface CardRow extends RowDataPacket {
   rarity: string | null;
   status: CardStatus;
   version: number;
+  effect_schema_version: number;
   image_mime: StoredCard['imageMime'] | null;
   image_data: Buffer | null;
   created_at: string;
@@ -100,6 +101,7 @@ const toCard = (row: CardRow): StoredCard => ({
   ...(row.rarity ? { rarity: row.rarity } : {}),
   status: row.status,
   version: row.version,
+  effectSchemaVersion: row.effect_schema_version ?? 0,
   ...(row.image_mime ? { imageMime: row.image_mime } : {}),
   ...(row.image_data ? { imageData: new Uint8Array(row.image_data) } : {}),
   createdAt: row.created_at,
@@ -176,18 +178,18 @@ class MySqlRepository implements AppRepository {
     await this.database.execute(
       `INSERT INTO cards (
         id, name, type, subtype, cost, attribute_name, traits, pp, dp, signal_color, rules_text, effect_ids,
-        structured_effects, art_path, rarity, status, version, image_mime, image_data, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        structured_effects, art_path, rarity, status, version, effect_schema_version, image_mime, image_data, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE name = VALUES(name), type = VALUES(type), subtype = VALUES(subtype), cost = VALUES(cost),
         attribute_name = VALUES(attribute_name), traits = VALUES(traits), pp = VALUES(pp), dp = VALUES(dp),
         signal_color = VALUES(signal_color), rules_text = VALUES(rules_text), effect_ids = VALUES(effect_ids),
         structured_effects = VALUES(structured_effects), art_path = VALUES(art_path), rarity = VALUES(rarity),
-        status = VALUES(status), version = VALUES(version), image_mime = VALUES(image_mime), image_data = VALUES(image_data),
+        status = VALUES(status), version = VALUES(version), effect_schema_version = VALUES(effect_schema_version), image_mime = VALUES(image_mime), image_data = VALUES(image_data),
         updated_at = VALUES(updated_at)`,
       [
         card.id, card.name, card.type, card.subtype ?? null, card.cost, card.attribute, JSON.stringify(card.traits),
         card.pp ?? null, card.dp ?? null, card.signal ?? null, JSON.stringify(card.text), JSON.stringify(card.effectIds),
-        JSON.stringify(card.structuredEffects ?? []), card.artPath ?? null, card.rarity ?? null, card.status, card.version,
+        JSON.stringify(card.structuredEffects ?? []), card.artPath ?? null, card.rarity ?? null, card.status, card.version, card.effectSchemaVersion,
         card.imageMime ?? null, card.imageData ? Buffer.from(card.imageData) : null, card.createdAt, card.updatedAt,
       ],
     );

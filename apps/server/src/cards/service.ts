@@ -1,6 +1,6 @@
 import type { CardDefinition } from '@pgr/protocol';
 import { validateExecutableEffect } from '@pgr/game-core';
-import type { AppRepository, StoredCard } from '../persistence/types.js';
+import { CURRENT_EFFECT_SCHEMA_VERSION, type AppRepository, type StoredCard } from '../persistence/types.js';
 import { cardInputSchema, type CardInput } from './schema.js';
 
 const maxImageBytes = 8 * 1024 * 1024;
@@ -108,6 +108,7 @@ export class CardService {
       ...definition,
       status: 'draft',
       version: (existing?.version ?? 0) + 1,
+      effectSchemaVersion: CURRENT_EFFECT_SCHEMA_VERSION,
       ...image,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,

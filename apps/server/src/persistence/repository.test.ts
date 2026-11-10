@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createMemoryRepository } from './memory-repository.js';
 import { connectMySqlRepository } from './mysql-repository.js';
 import type { StoredCard, StoredDeck } from './types.js';
+import { migrateDatabase } from './migrations.js';
 
 const makeCard = (): StoredCard => ({
   id: 'BP01-079',
@@ -16,6 +17,7 @@ const makeCard = (): StoredCard => ({
   effectIds: ['signal_draw'],
   status: 'published',
   version: 1,
+  effectSchemaVersion: 1,
   imageMime: 'image/webp',
   imageData: new Uint8Array([82, 73, 70, 70]),
   createdAt: '2026-11-09T00:00:00.000Z',
@@ -87,6 +89,16 @@ describe('AppRepository memory contract', () => {
 });
 
 describe('MySQL repository configuration', () => {
+  it('treats an already-existing effect schema column as an idempotent migration', async () => {
+    const executor = {
+      query: async (statement: string) => {
+        if (statement.startsWith('ALTER TABLE cards ADD COLUMN effect_schema_version')) throw { code: 'ER_DUP_FIELDNAME' };
+        return [];
+      },
+    };
+    await expect(migrateDatabase(executor as never)).resolves.toBeUndefined();
+  });
+
   it('rejects unsafe database identifiers before opening a connection', async () => {
     await expect(connectMySqlRepository({
       host: '127.0.0.1', port: 1, user: 'unused', password: 'unused', database: 'cards`; DROP DATABASE mysql; --',

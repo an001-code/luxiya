@@ -7,7 +7,7 @@ import { RoomManager } from './room-manager.js';
 
 const storedCard = (id: string, signal?: 'red' | 'blue' | 'yellow'): StoredCard => ({
   id, name: id, type: signal ? 'tactic' : 'character', ...(signal ? { subtype: 'normal' as const, signal } : { pp: 1000, dp: 1 }),
-  cost: 0, attribute: 'none', traits: [], text: ['测试'], effectIds: [], structuredEffects: [], status: 'published', version: 1,
+  cost: 0, attribute: 'none', traits: [], text: ['测试'], effectIds: [], structuredEffects: [], status: 'published', version: 1, effectSchemaVersion: 1,
   createdAt: '2026-11-09T00:00:00.000Z', updatedAt: '2026-11-09T00:00:00.000Z',
 });
 

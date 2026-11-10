@@ -5,6 +5,7 @@ import { buildServer } from '../server.js';
 import { CardService } from './service.js';
 import { cardInputSchema } from './schema.js';
 import { seedBuiltInCards } from '../seed-cards.js';
+import { cardDefinitions } from '@pgr/cards';
 
 const pngDataUrl = `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString('base64')}`;
 const cardInput = {
@@ -39,27 +40,32 @@ const cookieValue = (header: string | string[] | undefined): string => {
 };
 
 describe('admin card API', () => {
-  it('seeds built-in definitions as drafts without overwriting later administrator edits', async () => {
+  it('synchronizes only built-in effect fields and is idempotent', async () => {
     const repository = createMemoryRepository();
     await seedBuiltInCards(repository, () => new Date('2026-11-09T00:00:00.000Z'));
     const seeded = await repository.findCardById('BP01-079');
-    expect(seeded).toMatchObject({ name: '第五次交锋', status: 'draft', version: 1 });
+    expect(seeded).toMatchObject({ name: '第五次交锋', status: 'draft', version: 1, effectSchemaVersion: 1 });
 
-    await repository.saveCard({ ...seeded!, text: ['旧版摘要'], version: 1 });
-    await seedBuiltInCards(repository, () => new Date('2026-11-09T12:00:00.000Z'));
-    await expect(repository.findCardById('BP01-079')).resolves.toMatchObject({
-      text: [
-        '使用后将该牌放置到我方信号球区最上方，抽1张牌。',
-        '【充能自】：从以下2项选择1项。',
-        '·选择我方战场最多1张角色，直到回合结束为止，其DP+1。',
-        '·选择我方战场最多1张角色，直到回合结束为止，其PP+2000。',
-      ],
-      version: 1,
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    await repository.saveCard({
+      ...seeded!, text: ['管理员修订规则'], status: 'published', imageMime: 'image/png', imageData: png,
+      effectSchemaVersion: 0, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-02-01T00:00:00.000Z',
     });
+    await repository.saveCard({ ...seeded!, id: 'ADMIN-ONLY', name: '管理员自建卡', effectSchemaVersion: 0 });
+    const first = await seedBuiltInCards(repository, () => new Date('2026-11-09T12:00:00.000Z'));
+    expect(first.synchronized).toBe(1);
+    const migrated = await repository.findCardById('BP01-079');
+    expect(migrated).toMatchObject({
+      text: ['管理员修订规则'], status: 'published', version: 1, effectSchemaVersion: 1,
+      imageMime: 'image/png', imageData: png,
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-02-01T00:00:00.000Z',
+    });
+    expect(migrated?.structuredEffects?.some((effect) => effect.sourceEffectId === 'signal_draw')).toBe(true);
+    await expect(repository.findCardById('ADMIN-ONLY')).resolves.toMatchObject({ effectSchemaVersion: 0 });
 
-    await repository.saveCard({ ...seeded!, name: '管理员修订名称', version: 2 });
-    await seedBuiltInCards(repository, () => new Date('2026-11-10T00:00:00.000Z'));
-    await expect(repository.findCardById('BP01-079')).resolves.toMatchObject({ name: '管理员修订名称', version: 2 });
+    const second = await seedBuiltInCards(repository, () => new Date('2026-11-10T00:00:00.000Z'));
+    expect(second.synchronized).toBe(0);
+    await expect(repository.findCardById('BP01-079')).resolves.toEqual(migrated);
   });
 
   it('lets an administrator list draft and published cards without exposing drafts publicly', async () => {
@@ -162,6 +168,22 @@ describe('admin card API', () => {
     });
 
     await expect(service.publish('TEST-TYPED-DRAW')).resolves.toMatchObject({ status: 'published' });
+  });
+
+  it('publishes every non-development built-in card without missing-handler errors', async () => {
+    const repository = createMemoryRepository();
+    const service = new CardService(repository);
+    const timestamp = '2026-11-10T00:00:00.000Z';
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    for (const definition of cardDefinitions.filter((card) => !card.id.startsWith('DEV-'))) {
+      await repository.saveCard({
+        ...definition,
+        structuredEffects: definition.structuredEffects ?? [],
+        status: 'draft', version: 1, effectSchemaVersion: 1,
+        imageMime: 'image/png', imageData: png, createdAt: timestamp, updatedAt: timestamp,
+      });
+      await expect(service.publish(definition.id), definition.id).resolves.toMatchObject({ status: 'published' });
+    }
   });
 
   it('rejects an unknown structured action before it reaches persistence', () => {

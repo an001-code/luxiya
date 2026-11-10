@@ -19,6 +19,7 @@ const card = (id: string, signal?: SignalColor, status: StoredCard['status'] = '
   structuredEffects: [],
   status,
   version: 1,
+  effectSchemaVersion: 1,
   createdAt: timestamp,
   updatedAt: timestamp,
 });
