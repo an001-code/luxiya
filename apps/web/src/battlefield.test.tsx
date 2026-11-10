@@ -13,7 +13,7 @@ const board = (id: string, own: boolean): PlayerBoardView => ({
 const view: PlayerView = {
   gameId: 'game', version: 0, status: 'playing', viewerId: 'p1', self: board('p1', true), opponent: board('p2', false),
   activePlayerId: 'p1', phase: 'main', turn: 1, pendingAttack: null, winnerId: null,
-  legalActions: [{ type: 'END_PHASE' }], events: [],
+  pendingDecision: null, legalActions: [{ type: 'END_PHASE' }], events: [],
 };
 
 describe('Battlefield', () => {
@@ -57,5 +57,23 @@ describe('Battlefield', () => {
   test('offers an explicit mulligan confirmation during opening setup', () => {
     const html = renderToStaticMarkup(<Battlefield view={{ ...view, phase: 'mulligan', legalActions: [{ type: 'MULLIGAN', instanceIds: [] }] }} onCommand={() => undefined} />);
     expect(html).toContain('确认调度');
+  });
+});
+
+describe('effect decision panel', () => {
+  test('renders the current decision as explicit target buttons', () => {
+    const html = renderToStaticMarkup(<Battlefield view={{
+      ...view,
+      pendingDecision: {
+        id: 'decision-1', frameId: 'frame-1', kind: 'select-cards', prompt: 'Choose one character',
+        min: 1, max: 1, targetId: 'character',
+        options: [{ id: 'target-1', label: 'Test character', instanceId: 'target-1', cardId: 'DEV-001' }],
+      },
+      legalActions: [{ type: 'RESOLVE_EFFECT_DECISION', decisionId: 'decision-1', selectedInstanceIds: [] }],
+    }} onCommand={() => undefined} />);
+
+    expect(html).toContain('data-effect-decision="decision-1"');
+    expect(html).toContain('data-decision-option="target-1"');
+    expect(html).toContain('Choose one character');
   });
 });

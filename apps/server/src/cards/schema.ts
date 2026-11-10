@@ -40,8 +40,7 @@ const targetSchema = z.discriminatedUnion('kind', [
   z.object({ id: z.string().trim().min(1), kind: z.literal('cards'), player: playerSchema, zone: zoneSchema, min: z.number().int().min(0), max: z.number().int().min(0), optional: z.boolean().optional(), ordered: z.boolean().optional(), filter: cardFilterSchema.optional() }),
 ]);
 
-let actionSchema: z.ZodType<EffectAction>;
-actionSchema = z.lazy(() => z.discriminatedUnion('kind', [
+const actionSchema: z.ZodType<EffectAction> = z.lazy(() => z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('draw'), player: playerSchema, amount: valueSchema }),
   z.object({ kind: z.literal('discard'), targetId: z.string().trim().min(1) }),
   z.object({ kind: z.literal('modify-stat'), targetId: z.string().trim().min(1), stat: z.enum(['pp', 'dp', 'charge']), operation: z.enum(['add', 'set']), value: valueSchema, duration: durationSchema }),

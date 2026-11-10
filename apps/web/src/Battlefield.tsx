@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { getCardDefinition } from '@pgr/cards';
 import type { CardInstance, LegalAction, PlayerBoardView, PlayerView, PublicCardView } from '@pgr/protocol';
 
@@ -104,6 +104,7 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
   const [actionCardId, setActionCardId] = useState<string | null>(null);
   const [paymentIds, setPaymentIds] = useState<string[]>([]);
   const [mulliganIds, setMulliganIds] = useState<string[]>([]);
+  const [decisionSelectionIds, setDecisionSelectionIds] = useState<string[]>([]);
   const [tab, setTab] = useState<'detail' | 'log' | 'grave'>('detail');
   const hand = view.self.hand as CardInstance[];
   const selected = useMemo(() => collectVisibleCards(view).find((card) => card.instanceId === detailCardId) ?? null, [detailCardId, view]);
@@ -119,6 +120,10 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
       || selectedPaymentCards.some((card) => card.face === 'up' && card.cardId && getCardDefinition(card.cardId).attribute === actionDefinition!.attribute));
   const paymentActive = Boolean(actionCardId && playableIds.has(actionCardId) && actionDefinition && actionDefinition.cost > 0);
   const isMine = view.activePlayerId === view.viewerId;
+
+  useEffect(() => {
+    setDecisionSelectionIds([]);
+  }, [view.pendingDecision?.id]);
 
   const viewCard = (card: ViewCard) => { setDetailCardId(card.instanceId); setTab('detail'); };
   const chooseHandCard = (card: CardInstance) => {
@@ -164,6 +169,27 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
     return attack ? { label: '攻击玩家', action: attack } : null;
   };
   const eliminateAction = view.legalActions.find((action): action is Extract<LegalAction, { type: 'ELIMINATE_SIGNALS' }> => action.type === 'ELIMINATE_SIGNALS');
+  const chooseDecisionOption = (optionId: string, instanceId?: string) => {
+    const decision = view.pendingDecision;
+    if (!decision) return;
+    if (decision.kind === 'choose-option') {
+      onCommand({ type: 'RESOLVE_EFFECT_DECISION', decisionId: decision.id, optionId, selectedInstanceIds: [] });
+      return;
+    }
+    if (!instanceId) return;
+    if (decision.max === 1) {
+      onCommand({ type: 'RESOLVE_EFFECT_DECISION', decisionId: decision.id, selectedInstanceIds: [instanceId] });
+      return;
+    }
+    setDecisionSelectionIds((ids) => ids.includes(instanceId)
+      ? ids.filter((id) => id !== instanceId)
+      : ids.length < decision.max ? [...ids, instanceId] : ids);
+  };
+  const confirmDecision = () => {
+    const decision = view.pendingDecision;
+    if (!decision || decisionSelectionIds.length < decision.min || decisionSelectionIds.length > decision.max) return;
+    onCommand({ type: 'RESOLVE_EFFECT_DECISION', decisionId: decision.id, selectedInstanceIds: decisionSelectionIds });
+  };
 
   return (
     <main className="battlefield-shell">
@@ -179,6 +205,17 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
           <section className="action-console">
             <div className="phase-status"><small>第 {view.turn} 回合</small><strong>{isMine ? '我方行动' : '对手行动'} · {phaseNames[view.phase]}</strong></div>
             <div className="action-readout"><span>{view.pendingAttack ? '攻击响应窗口' : '当前行动：等待指令'}</span><b>{view.pendingAttack ? '响应堆栈 1' : '响应堆栈 0'}</b></div>
+            {view.pendingDecision && <section className="effect-decision" data-effect-decision={view.pendingDecision.id}>
+              <strong>{view.pendingDecision.prompt}</strong>
+              <small>请选择 {view.pendingDecision.min}-{view.pendingDecision.max} 项</small>
+              <div className="decision-options">{view.pendingDecision.options.map((option) => <button
+                key={option.id}
+                data-decision-option={option.id}
+                className={option.instanceId && decisionSelectionIds.includes(option.instanceId) ? 'selected' : ''}
+                onClick={() => chooseDecisionOption(option.id, option.instanceId)}
+              >{option.label}</button>)}</div>
+              {view.pendingDecision.max > 1 && <button className="confirm-decision" onClick={confirmDecision} disabled={decisionSelectionIds.length < view.pendingDecision.min || decisionSelectionIds.length > view.pendingDecision.max}>确认选择</button>}
+            </section>}
             <button className="primary-action" onClick={primaryAction} disabled={!view.legalActions.some((action) => ['MULLIGAN', 'PASS_RESPONSE', 'ADVANCE_PHASE', 'SET_ENERGY', 'END_PHASE'].includes(action.type))}>{actionLabel}</button>
           </section>
           <ProcessingZone board={view.self} side="self" selectedId={detailCardId} onCard={viewCard} />

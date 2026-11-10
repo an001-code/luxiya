@@ -132,6 +132,15 @@ button { color: inherit; }
 .action-readout b { color: #8dcde9; font-size: 9px; }
 .primary-action { border-color: var(--coral); background: #54202a; color: #ff8295; font-weight: 800; font-size: 16px; cursor: pointer; }
 .primary-action:disabled { opacity: .35; cursor: not-allowed; }
+.effect-decision { min-height: 0; overflow: auto; border: 1px solid #49adf2; background: rgba(7, 27, 42, .98); padding: 7px; box-shadow: inset 3px 0 #49adf2; }
+.effect-decision > strong, .effect-decision > small { display: block; }
+.effect-decision > strong { color: #eaf7ff; font-size: 11px; }
+.effect-decision > small { margin: 2px 0 6px; color: #7ba4bd; font-size: 9px; }
+.decision-options { display: grid; gap: 4px; }
+.decision-options button, .confirm-decision { min-height: 26px; border: 1px solid #315c75; background: #102c3d; color: #caeaff; cursor: pointer; }
+.decision-options button:hover, .decision-options button.selected { border-color: #69c4ff; box-shadow: inset 0 0 0 1px #69c4ff; }
+.confirm-decision { width: 100%; margin-top: 5px; border-color: #3a9f75; background: #154a39; }
+.confirm-decision:disabled { opacity: .35; cursor: not-allowed; }
 .hand-zone { position: relative; display: grid; grid-template-columns: 72px 1fr 116px; gap: 8px; align-items: center; padding: 8px; background: rgba(9, 19, 28, .86); border: 1px solid #263f52; }
 .hand-count { color: #9bb0c0; font-size: 12px; }
 .hand-cards { display: flex; justify-content: center; gap: 6px; min-width: 0; overflow: hidden; }

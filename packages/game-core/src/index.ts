@@ -14,8 +14,10 @@ import type {
   PlayerView,
   PublicCardView,
 } from '@pgr/protocol';
+import { resolveEffectDecision } from './effects/state.js';
 
 export { registeredCustomEffectHandlers, validateExecutableEffect } from './effects/capabilities.js';
+export { resolveEffectDecision, startEffectResolution } from './effects/state.js';
 
 export type Rng = () => number;
 
@@ -137,6 +139,10 @@ export function createGame(
     phase: 'mulligan',
     turn: 1,
     pendingAttack: null,
+    effectStack: [],
+    pendingDecision: null,
+    continuousModifiers: [],
+    abilityUsage: [],
     winnerId: null,
     processedCommandIds: [],
     events: [],
@@ -170,6 +176,14 @@ export const getLegalActions = (state: GameState, playerId: string): LegalAction
   if (state.status !== 'playing') return [];
   const player = state.players[playerId];
   if (!player) return [];
+  if (state.pendingDecision) {
+    if (state.pendingDecision.playerId !== playerId) return [];
+    return [{
+      type: 'RESOLVE_EFFECT_DECISION',
+      decisionId: state.pendingDecision.id,
+      selectedInstanceIds: [],
+    }];
+  }
   if (state.phase === 'mulligan' && !player.mulliganDone) return [{ type: 'MULLIGAN', instanceIds: [] }];
   if (state.pendingAttack) {
     if (state.pendingAttack.priorityPlayerId !== playerId) return [];
@@ -220,6 +234,8 @@ const publicCard = (card: CardInstance, hideIdentity = false): PublicCardView =>
   ...(card.temporaryPp === undefined ? {} : { temporaryPp: card.temporaryPp }),
   ...(card.temporaryDp === undefined ? {} : { temporaryDp: card.temporaryDp }),
   ...(card.attached ? { attached: card.attached.map((item) => publicCard(item, hideIdentity)) } : {}),
+  ...(card.mode === undefined ? {} : { mode: card.mode }),
+  ...(card.returnAtTurn === undefined ? {} : { returnAtTurn: card.returnAtTurn }),
 });
 
 const boardView = (player: PlayerState, own: boolean): PlayerBoardView => ({
@@ -238,6 +254,18 @@ export const createPlayerView = (state: GameState, playerId: PlayerId): PlayerVi
   const self = state.players[playerId];
   if (!self) throw new Error('Player is not part of this game');
   const opponent = state.players[opponentId(state, playerId)]!;
+  const pendingDecision = state.pendingDecision?.playerId === playerId
+    ? {
+      id: state.pendingDecision.id,
+      frameId: state.pendingDecision.frameId,
+      kind: state.pendingDecision.kind,
+      prompt: state.pendingDecision.prompt,
+      min: state.pendingDecision.min,
+      max: state.pendingDecision.max,
+      ...(state.pendingDecision.targetId === undefined ? {} : { targetId: state.pendingDecision.targetId }),
+      options: structuredClone(state.pendingDecision.options),
+    }
+    : null;
   return {
     gameId: state.id,
     version: state.version,
@@ -249,6 +277,7 @@ export const createPlayerView = (state: GameState, playerId: PlayerId): PlayerVi
     phase: state.phase,
     turn: state.turn,
     pendingAttack: state.pendingAttack,
+    pendingDecision,
     winnerId: state.winnerId,
     legalActions: getLegalActions(state, playerId),
     events: state.events.filter((event) => event.public),
@@ -369,6 +398,20 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
   if (state.processedCommandIds.includes(command.commandId)) return reject(state, 'DUPLICATE_COMMAND', '命令已处理');
   if (state.status === 'finished') return reject(state, 'GAME_FINISHED', '对局已经结束');
   if (!state.players[command.playerId]) return reject(state, 'ILLEGAL_ACTION', '玩家不在该对局中');
+  if (state.pendingDecision) {
+    if (command.type !== 'RESOLVE_EFFECT_DECISION') return reject(state, 'ILLEGAL_ACTION', '请先完成当前效果选择');
+    const resolution = resolveEffectDecision(state, command);
+    if (!resolution.accepted) return reject(state, resolution.code, resolution.message);
+    const resolved = resolution.state;
+    resolved.version += 1;
+    resolved.processedCommandIds.push(command.commandId);
+    return {
+      accepted: true,
+      state: resolved,
+      legalActions: getLegalActions(resolved, command.playerId),
+      emittedEvents: [],
+    };
+  }
   const next = structuredClone(state);
   const player = next.players[command.playerId]!;
   const emittedBefore = next.events.length;

@@ -9,7 +9,7 @@ export type {
   EffectDuration, EffectEvent, EffectPlayer, EffectTarget, EffectTrigger, EffectValue, EffectZone,
   StructuredEffect,
 } from './effects.js';
-import type { StructuredEffect } from './effects.js';
+import type { EffectDuration, StructuredEffect } from './effects.js';
 
 export interface CardDefinition {
   id: string;
@@ -46,6 +46,8 @@ export interface CardInstance {
   temporaryPp?: number;
   temporaryDp?: number;
   attached?: CardInstance[];
+  mode?: 'normal' | 'floating';
+  returnAtTurn?: number;
 }
 
 export interface PendingAttack {
@@ -55,6 +57,58 @@ export interface PendingAttack {
   blockerSlot?: number;
   priorityPlayerId: PlayerId;
   consecutivePasses: number;
+}
+
+export interface EffectFrame {
+  id: string;
+  sourceInstanceId: string;
+  controllerId: PlayerId;
+  effect: StructuredEffect;
+  status: 'resolving' | 'waiting-for-decision';
+  targetIndex: number;
+  actionIndex: number;
+  selectedTargets: Record<string, string[]>;
+  selectedOptionId?: string;
+}
+
+export interface DecisionOption {
+  id: string;
+  label: string;
+  instanceId?: string;
+  cardId?: string | null;
+}
+
+export interface PendingDecision {
+  id: string;
+  frameId: string;
+  playerId: PlayerId;
+  kind: 'select-cards' | 'choose-option' | 'confirm' | 'order-cards';
+  prompt: string;
+  min: number;
+  max: number;
+  targetId?: string;
+  options: DecisionOption[];
+}
+
+export type PlayerDecisionView = Omit<PendingDecision, 'playerId'>;
+
+export interface ContinuousModifier {
+  id: string;
+  sourceInstanceId: string;
+  controllerId: PlayerId;
+  kind: 'stat' | 'signal-as' | 'cost' | 'keyword';
+  targetInstanceIds: string[];
+  value: number | string;
+  duration: EffectDuration;
+  createdTurn: number;
+}
+
+export interface AbilityUsageRecord {
+  sourceInstanceId: string;
+  effectId: string;
+  playerId: PlayerId;
+  turn: number;
+  count: number;
 }
 
 export interface PlayerState {
@@ -90,6 +144,10 @@ export interface GameState {
   phase: Phase;
   turn: number;
   pendingAttack: PendingAttack | null;
+  effectStack: EffectFrame[];
+  pendingDecision: PendingDecision | null;
+  continuousModifiers: ContinuousModifier[];
+  abilityUsage: AbilityUsageRecord[];
   winnerId: PlayerId | null;
   processedCommandIds: string[];
   events: GameEvent[];
@@ -112,6 +170,7 @@ export type GameCommand = CommandBase & (
   | { type: 'BLOCK'; blockerSlot: number }
   | { type: 'PASS_RESPONSE' }
   | { type: 'SELECT_OPTION'; optionId: string }
+  | { type: 'RESOLVE_EFFECT_DECISION'; decisionId: string; optionId?: string; selectedInstanceIds: string[] }
   | { type: 'END_PHASE' }
   | { type: 'CONCEDE' }
 );
@@ -164,6 +223,7 @@ export interface PlayerView {
   phase: Phase;
   turn: number;
   pendingAttack: PendingAttack | null;
+  pendingDecision: PlayerDecisionView | null;
   winnerId: PlayerId | null;
   legalActions: LegalAction[];
   events: GameEvent[];
