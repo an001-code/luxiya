@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createMemoryRepository } from './memory-repository.js';
+import { connectMySqlRepository } from './mysql-repository.js';
 import type { StoredCard, StoredDeck } from './types.js';
 
 const makeCard = (): StoredCard => ({
@@ -82,5 +83,13 @@ describe('AppRepository memory contract', () => {
 
     await expect(repository.findCardById('BP01-079')).resolves.toBeNull();
     await expect(repository.findDeckById('deck-1')).resolves.toBeNull();
+  });
+});
+
+describe('MySQL repository configuration', () => {
+  it('rejects unsafe database identifiers before opening a connection', async () => {
+    await expect(connectMySqlRepository({
+      host: '127.0.0.1', port: 1, user: 'unused', password: 'unused', database: 'cards`; DROP DATABASE mysql; --',
+    })).rejects.toThrow('INVALID_DATABASE_NAME');
   });
 });

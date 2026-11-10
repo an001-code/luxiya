@@ -24,10 +24,12 @@ export class ApiError extends Error {
 }
 
 export const apiRequest = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
+  const headers = new Headers(init.headers);
+  if (typeof init.body === 'string' && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   const response = await fetch(`${API}${path}`, {
     ...init,
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...init.headers },
+    headers,
   });
   if (response.status === 204) return undefined as T;
   const body = await response.json() as T & { error?: string; details?: string[] };

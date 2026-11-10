@@ -281,9 +281,22 @@ export const createMySqlRepository = (config: MySqlRepositoryConfig): AppReposit
 };
 
 export const connectMySqlRepository = async (config: MySqlRepositoryConfig): Promise<AppRepository> => {
+  if (!/^[A-Za-z0-9_]+$/.test(config.database)) throw new Error('INVALID_DATABASE_NAME');
+  const { database, ...serverConfig } = config;
+  const bootstrapPool = createPool({ ...serverConfig, connectionLimit: 1 });
+  try {
+    await bootstrapPool.query(`CREATE DATABASE IF NOT EXISTS \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`);
+  } finally {
+    await bootstrapPool.end();
+  }
   const pool = createPool({ ...config, dateStrings: true, connectionLimit: config.connectionLimit ?? 10 });
-  await migrateDatabase(pool);
-  return new MySqlRepository(pool, pool);
+  try {
+    await migrateDatabase(pool);
+    return new MySqlRepository(pool, pool);
+  } catch (error) {
+    await pool.end();
+    throw error;
+  }
 };
 
 export const mysqlConfigFromEnv = (): MySqlRepositoryConfig => ({

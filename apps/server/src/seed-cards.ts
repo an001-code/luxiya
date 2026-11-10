@@ -2,6 +2,7 @@ import { pathToFileURL } from 'node:url';
 import { cardDefinitions } from '@pgr/cards';
 import { connectMySqlRepository, mysqlConfigFromEnv } from './persistence/mysql-repository.js';
 import type { AppRepository } from './persistence/types.js';
+import { loadProjectEnv } from './env.js';
 
 export const seedBuiltInCards = async (
   repository: AppRepository,
@@ -25,6 +26,7 @@ export const seedBuiltInCards = async (
 };
 
 const run = async (): Promise<void> => {
+  loadProjectEnv();
   const repository = await connectMySqlRepository(mysqlConfigFromEnv());
   try {
     const count = await seedBuiltInCards(repository);

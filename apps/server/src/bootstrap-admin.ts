@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { hashPassword } from './auth/password.js';
 import { connectMySqlRepository, mysqlConfigFromEnv } from './persistence/mysql-repository.js';
 import type { AppRepository, UserRecord } from './persistence/types.js';
+import { loadProjectEnv } from './env.js';
 
 export const bootstrapAdmin = async (
   repository: AppRepository,
@@ -24,6 +25,7 @@ export const bootstrapAdmin = async (
 };
 
 const run = async (): Promise<void> => {
+  loadProjectEnv();
   const password = process.env.BOOTSTRAP_ADMIN_PASSWORD;
   if (!password) throw new Error('BOOTSTRAP_ADMIN_PASSWORD is required');
   const repository = await connectMySqlRepository(mysqlConfigFromEnv());
