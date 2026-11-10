@@ -1,4 +1,6 @@
 import type { CardDefinition, DeckDefinition } from '@pgr/protocol';
+import { effectsForCurrentCard } from './current-card-effects.js';
+export { currentCardEffects, effectsForCurrentCard } from './current-card-effects.js';
 
 const abilityByEffectId: Record<string, NonNullable<CardDefinition['structuredEffects']>[number]['ability']> = {
   charge_zero: 'permanent',
@@ -27,32 +29,37 @@ const abilityByEffectId: Record<string, NonNullable<CardDefinition['structuredEf
   support_recover_signal: 'activated',
 };
 
-const structuresFor = (effectIds: string[]): NonNullable<CardDefinition['structuredEffects']> => effectIds.map((handlerId) => ({
-  id: handlerId.replaceAll('_', '-'),
-  sourceEffectId: handlerId,
-  ability: abilityByEffectId[handlerId] ?? 'automatic',
-  ...((abilityByEffectId[handlerId] ?? 'automatic') === 'enter' ? { trigger: { kind: 'event' as const, event: 'card-entered' as const } } : {}),
-  conditions: [],
-  costs: [],
-  targets: [],
-  actions: [{ kind: 'custom', customHandlerId: handlerId }],
-  duration: { kind: 'instant' },
-}));
+const structuresFor = (cardId: string, effectIds: string[]): NonNullable<CardDefinition['structuredEffects']> => {
+  const current = effectsForCurrentCard(cardId) ?? [];
+  const covered = new Set(current.flatMap((effect) => effect.sourceEffectId ? [effect.sourceEffectId] : []));
+  const placeholders = effectIds.filter((handlerId) => !covered.has(handlerId)).map((handlerId) => ({
+    id: handlerId.replaceAll('_', '-'),
+    sourceEffectId: handlerId,
+    ability: abilityByEffectId[handlerId] ?? 'automatic',
+    ...((abilityByEffectId[handlerId] ?? 'automatic') === 'enter' ? { trigger: { kind: 'event' as const, event: 'card-entered' as const } } : {}),
+    conditions: [],
+    costs: [],
+    targets: [],
+    actions: [{ kind: 'custom' as const, customHandlerId: handlerId }],
+    duration: { kind: 'instant' as const },
+  }));
+  return [...current, ...placeholders];
+};
 
 const character = (
   id: string, name: string, cost: number, attribute: CardDefinition['attribute'], pp: number, dp: number,
   traits: string[], text: string[] = [], effectIds: string[] = [], rarity?: string,
-): CardDefinition => ({ id, name, type: 'character', cost, attribute, pp, dp, traits, text, effectIds, structuredEffects: structuresFor(effectIds), ...(rarity ? { rarity } : {}), artPath: `/cards/${id}.webp` });
+): CardDefinition => ({ id, name, type: 'character', cost, attribute, pp, dp, traits, text, effectIds, structuredEffects: structuresFor(id, effectIds), ...(rarity ? { rarity } : {}), artPath: `/cards/${id}.webp` });
 
 const tactic = (
   id: string, name: string, cost: number, attribute: CardDefinition['attribute'], subtype: 'normal' | 'instant',
   text: string[], effectIds: string[], signal?: CardDefinition['signal'], traits: string[] = [], rarity?: string,
-): CardDefinition => ({ id, name, type: 'tactic', subtype, cost, attribute, traits, text, effectIds, structuredEffects: structuresFor(effectIds), ...(signal ? { signal } : {}), ...(rarity ? { rarity } : {}), artPath: `/cards/${id}.webp` });
+): CardDefinition => ({ id, name, type: 'tactic', subtype, cost, attribute, traits, text, effectIds, structuredEffects: structuresFor(id, effectIds), ...(signal ? { signal } : {}), ...(rarity ? { rarity } : {}), artPath: `/cards/${id}.webp` });
 
 const item = (
   id: string, name: string, cost: number, subtype: 'equipment' | 'support', text: string[], effectIds: string[],
   pp?: number, traits: string[] = [], rarity?: string,
-): CardDefinition => ({ id, name, type: 'item', subtype, cost, attribute: 'physical', traits, ...(pp === undefined ? {} : { pp }), text, effectIds, structuredEffects: structuresFor(effectIds), ...(rarity ? { rarity } : {}), artPath: `/cards/${id}.webp` });
+): CardDefinition => ({ id, name, type: 'item', subtype, cost, attribute: 'physical', traits, ...(pp === undefined ? {} : { pp }), text, effectIds, structuredEffects: structuresFor(id, effectIds), ...(rarity ? { rarity } : {}), artPath: `/cards/${id}.webp` });
 
 export const cardDefinitions: CardDefinition[] = [
   character('ST01-005', '露西亚·红莲', 3, 'physical', 3000, 0, ['露西亚', '灰鸦小队'], [

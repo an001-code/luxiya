@@ -8,7 +8,7 @@ export type EffectEvent = 'card-used' | 'card-entered' | 'card-left' | 'attack-d
 
 export type EffectValue =
   | { kind: 'fixed'; value: number }
-  | { kind: 'selected-count'; targetId: string }
+  | { kind: 'selected-count'; targetId: string; multiplier?: number }
   | { kind: 'source-stat'; stat: 'pp' | 'dp' | 'charge' };
 
 export interface EffectCardFilter {
@@ -54,7 +54,7 @@ export type EffectDuration =
   | { kind: 'next-turn' }
   | { kind: 'permanent' };
 
-export interface EffectChoiceOption { id: string; label: string; actions: EffectAction[] }
+export interface EffectChoiceOption { id: string; label: string; conditions?: EffectCondition[]; actions: EffectAction[] }
 
 export type EffectAction =
   | { kind: 'draw'; player: EffectPlayer; amount: EffectValue }

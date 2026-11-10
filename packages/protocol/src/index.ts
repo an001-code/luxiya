@@ -57,6 +57,13 @@ export interface PendingAttack {
   blockerSlot?: number;
   priorityPlayerId: PlayerId;
   consecutivePasses: number;
+  stage: 'response' | 'combat';
+}
+
+export interface PriorityWindow {
+  kind: 'end-phase';
+  priorityPlayerId: PlayerId;
+  consecutivePasses: number;
 }
 
 export interface EffectFrame {
@@ -152,6 +159,7 @@ export interface GameState {
   phase: Phase;
   turn: number;
   pendingAttack: PendingAttack | null;
+  priorityWindow: PriorityWindow | null;
   effectStack: EffectFrame[];
   pendingDecision: PendingDecision | null;
   continuousModifiers: ContinuousModifier[];
@@ -231,6 +239,7 @@ export interface PlayerView {
   phase: Phase;
   turn: number;
   pendingAttack: PendingAttack | null;
+  priorityWindow: PriorityWindow | null;
   pendingDecision: PlayerDecisionView | null;
   winnerId: PlayerId | null;
   legalActions: LegalAction[];

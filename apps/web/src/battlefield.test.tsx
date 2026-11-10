@@ -12,7 +12,7 @@ const board = (id: string, own: boolean): PlayerBoardView => ({
 
 const view: PlayerView = {
   gameId: 'game', version: 0, status: 'playing', viewerId: 'p1', self: board('p1', true), opponent: board('p2', false),
-  activePlayerId: 'p1', phase: 'main', turn: 1, pendingAttack: null, winnerId: null,
+  activePlayerId: 'p1', phase: 'main', turn: 1, pendingAttack: null, priorityWindow: null, winnerId: null,
   pendingDecision: null, legalActions: [{ type: 'END_PHASE' }], events: [],
 };
 

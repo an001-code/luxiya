@@ -22,7 +22,7 @@ const customHandlerErrors = (effectId: string, nodes: Array<EffectAction | Effec
       errors.push(`效果 ${effectId}：未注册效果处理器 ${node.customHandlerId}`);
     }
     if (node.kind === 'choose') {
-      for (const option of node.options) errors.push(...customHandlerErrors(effectId, option.actions));
+      for (const option of node.options) errors.push(...customHandlerErrors(effectId, [...(option.conditions ?? []), ...option.actions]));
     }
   }
   return errors;
@@ -31,8 +31,15 @@ const customHandlerErrors = (effectId: string, nodes: Array<EffectAction | Effec
 export const validateExecutableEffect = (effect: StructuredEffect): string[] => {
   const errors = customHandlerErrors(effect.id, [...effect.conditions, ...effect.costs, ...effect.actions]);
   const targetIds = new Set(effect.targets.map((target) => target.id));
-  for (const action of effect.actions) {
-    if ('targetId' in action && !targetIds.has(action.targetId)) errors.push(`效果 ${effect.id}：目标 ${action.targetId} 未定义`);
-  }
+  const specialTargets = new Set(['source', 'equipped-character']);
+  const validateTargets = (actions: EffectAction[]): void => {
+    for (const action of actions) {
+      if ('targetId' in action && !targetIds.has(action.targetId) && !specialTargets.has(action.targetId)) {
+        errors.push(`效果 ${effect.id}：目标 ${action.targetId} 未定义`);
+      }
+      if (action.kind === 'choose') for (const option of action.options) validateTargets(option.actions);
+    }
+  };
+  validateTargets(effect.actions);
   return [...new Set(errors)];
 };

@@ -15,7 +15,7 @@ import type {
   PublicCardView,
 } from '@pgr/protocol';
 import { resolveEffectDecision } from './effects/state.js';
-import { continueEffectResolution } from './effects/interpreter.js';
+import { continueEffectResolution, enqueueEffects } from './effects/interpreter.js';
 
 export { registeredCustomEffectHandlers, validateExecutableEffect } from './effects/capabilities.js';
 export { resolveEffectDecision, startEffectResolution } from './effects/state.js';
@@ -142,6 +142,7 @@ export function createGame(
     phase: 'mulligan',
     turn: 1,
     pendingAttack: null,
+    priorityWindow: null,
     effectStack: [],
     pendingDecision: null,
     continuousModifiers: [],
@@ -205,6 +206,16 @@ export const getLegalActions = (state: GameState, playerId: string): LegalAction
     }
     for (const card of player.hand) {
       if (definitionFor(state, card.cardId).subtype === 'instant' && canPay(state, player, card.cardId)) actions.push({ type: 'PLAY_CARD', instanceId: card.instanceId });
+    }
+    return actions;
+  }
+  if (state.priorityWindow) {
+    if (state.priorityWindow.priorityPlayerId !== playerId) return [];
+    const actions: LegalAction[] = [{ type: 'PASS_RESPONSE' }];
+    for (const card of player.hand) {
+      if (definitionFor(state, card.cardId).subtype === 'instant' && canPay(state, player, card.cardId)) {
+        actions.push({ type: 'PLAY_CARD', instanceId: card.instanceId });
+      }
     }
     return actions;
   }
@@ -288,6 +299,7 @@ export const createPlayerView = (state: GameState, playerId: PlayerId): PlayerVi
     phase: state.phase,
     turn: state.turn,
     pendingAttack: state.pendingAttack,
+    priorityWindow: state.priorityWindow,
     pendingDecision,
     winnerId: state.winnerId,
     legalActions: getLegalActions(state, playerId),
@@ -348,22 +360,27 @@ const checkDefeat = (state: GameState): void => {
 };
 
 const attackCharge = (state: GameState, player: PlayerState, attacker: CardInstance, rng: Rng): void => {
-  if (definitionFor(state, attacker.cardId).effectIds.includes('charge_zero')) return;
-  const card = player.deck.shift();
-  if (!card) return;
-  card.face = 'up';
-  const definition = definitionFor(state, card.cardId);
-  if (definition.signal) {
-    player.signals.push(card);
-    if (definition.effectIds.includes('charge_choice_red')) attacker.temporaryDp = (attacker.temporaryDp ?? 0) + 1;
-    if (definition.effectIds.includes('charge_choice_blue')) drawOne(state, player, rng);
-    if (definition.effectIds.includes('charge_choice_yellow')) {
-      const opponent = state.players[opponentId(state, player.id)]!;
-      if (player.corruption >= opponent.corruption && player.corruption > 0) player.corruption -= 1;
-      else attacker.temporaryPp = (attacker.temporaryPp ?? 0) + 2000;
-    }
-  } else player.hand.push(card);
-  addEvent(state, 'attack-charge', player.id, `${player.id} 执行攻击充能`);
+  const attackerDefinition = definitionFor(state, attacker.cardId);
+  const chargeModifier = attackerDefinition.structuredEffects
+    ?.flatMap((effect) => effect.ability === 'permanent' ? effect.actions : [])
+    .find((action) => action.kind === 'modify-stat' && action.targetId === 'source' && action.stat === 'charge');
+  const chargeCount = chargeModifier?.kind === 'modify-stat' && chargeModifier.value.kind === 'fixed'
+    ? (chargeModifier.operation === 'set' ? chargeModifier.value.value : 1 + chargeModifier.value.value)
+    : 1;
+  for (let index = 0; index < Math.max(0, chargeCount); index += 1) {
+    const card = player.deck.shift();
+    if (!card) return;
+    card.face = 'up';
+    const definition = definitionFor(state, card.cardId);
+    if (definition.signal) {
+      player.signals.push(card);
+      const chargeEffects = definition.structuredEffects?.filter((effect) => effect.ability === 'charge') ?? [];
+      enqueueEffects(state, { controllerId: player.id, sourceInstanceId: attacker.instanceId }, chargeEffects);
+      continueEffectResolution(state, rng);
+      if (state.pendingDecision) return;
+    } else player.hand.push(card);
+    addEvent(state, 'attack-charge', player.id, `${player.id} 执行攻击充能`);
+  }
 };
 
 const damagePlayer = (state: GameState, player: PlayerState, amount: number, rng: Rng): void => {
@@ -391,7 +408,11 @@ const resolveAttack = (state: GameState, rng: Rng): void => {
     state.pendingAttack = null;
     return;
   }
-  attackCharge(state, attackerPlayer, attacker, rng);
+  if (pending.stage === 'response') {
+    pending.stage = 'combat';
+    attackCharge(state, attackerPlayer, attacker, rng);
+    if (state.pendingDecision || state.effectStack.length > 0) return;
+  }
   const defenderSlot = pending.blockerSlot ?? (pending.target === 'character' ? pending.targetSlot : undefined);
   if (defenderSlot !== undefined) {
     const defender = defenderPlayer.field[defenderSlot];
@@ -409,6 +430,25 @@ const resolveAttack = (state: GameState, rng: Rng): void => {
   state.pendingAttack = null;
 };
 
+const finishTurn = (state: GameState, playerId: PlayerId): void => {
+  const player = state.players[playerId]!;
+  for (let index = player.energy.length - 1; index >= 0; index -= 1) {
+    if (player.energy[index]!.face === 'down') player.graveyard.push(...player.energy.splice(index, 1));
+  }
+  while (player.hand.length > 7) player.graveyard.push(player.hand.pop()!);
+  for (const card of player.field) if (card) { delete card.temporaryPp; delete card.temporaryDp; }
+  state.continuousModifiers = state.continuousModifiers.filter((modifier) => {
+    if (modifier.duration.kind === 'turn') return false;
+    if (modifier.duration.kind === 'next-turn' && modifier.controllerId === playerId && state.turn > modifier.createdTurn) return false;
+    return true;
+  });
+  state.priorityWindow = null;
+  state.activePlayerId = opponentId(state, playerId);
+  state.phase = 'upright';
+  state.turn += 1;
+  addEvent(state, 'turn-ended', playerId, `${playerId} 结束回合`);
+};
+
 export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): GameResult => {
   if (command.expectedVersion !== state.version) return reject(state, 'STALE_VERSION', '客户端状态已过期');
   if (state.processedCommandIds.includes(command.commandId)) return reject(state, 'DUPLICATE_COMMAND', '命令已处理');
@@ -420,6 +460,9 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
     if (!resolution.accepted) return reject(state, resolution.code, resolution.message);
     const resolved = resolution.state;
     continueEffectResolution(resolved, rng);
+    if (resolved.pendingAttack?.stage === 'combat' && !resolved.pendingDecision && resolved.effectStack.length === 0) {
+      resolveAttack(resolved, rng);
+    }
     resolved.version += 1;
     resolved.processedCommandIds.push(command.commandId);
     return {
@@ -468,7 +511,10 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
     if (index < 0) return reject(state, 'ILLEGAL_ACTION', '卡牌不在手牌中');
     const card = player.hand[index]!;
     const definition = definitionFor(next, card.cardId);
-    const inResponse = Boolean(next.pendingAttack && next.pendingAttack.priorityPlayerId === command.playerId && definition.subtype === 'instant');
+    const inResponse = Boolean(definition.subtype === 'instant' && (
+      next.pendingAttack?.priorityPlayerId === command.playerId
+      || next.priorityWindow?.priorityPlayerId === command.playerId
+    ));
     if (!inResponse && (next.phase !== 'main' || next.activePlayerId !== command.playerId || definition.subtype === 'instant')) return reject(state, 'NOT_YOUR_ACTION', '当前不能使用该卡牌');
     if (!canPay(next, player, card.cardId)) return reject(state, 'ILLEGAL_ACTION', '费用或属性条件不满足');
     const payment = selectedPayment(next, player, card.cardId, command.paymentIds);
@@ -478,7 +524,6 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
     card.face = 'up';
     if (definition.signal) {
       player.signals.push(card);
-      drawOne(next, player, rng);
     } else if (definition.type === 'character' || definition.subtype === 'support') {
       const slot = command.fieldSlot ?? player.field.findIndex((item) => item === null);
       if (slot < 0 || slot >= 5 || player.field[slot]) return reject(state, 'ILLEGAL_ACTION', '没有合法战场卡位');
@@ -492,11 +537,6 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
       if (slot < 0 || slot >= 5 || player.field[slot]) return reject(state, 'ILLEGAL_ACTION', '没有合法装备位置');
       player.field[slot] = { ...card, enteredTurn: next.turn };
     } else player.graveyard.push(card);
-    if (definition.effectIds.includes('enter_draw_discard')) {
-      drawOne(next, player, rng);
-      const discarded = player.hand.pop();
-      if (discarded) player.graveyard.push(discarded);
-    }
     if (definition.effectIds.includes('enter_swap_energy')) {
       const energyIndex = player.energy.findIndex((item) => item.face === 'up');
       if (energyIndex >= 0 && player.deck.length > 0) {
@@ -510,13 +550,19 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
       const graveIndex = player.graveyard.findIndex((item) => definitionFor(next, item.cardId).signal === 'blue');
       if (graveIndex >= 0) player.signals.push(...player.graveyard.splice(graveIndex, 1));
     }
-    if (definition.effectIds.includes('corruption_draw') && next.events.some((event) => event.createdAtTurn === next.turn && event.playerId === player.id && (event.type === 'damage' || event.type === 'deck-refresh'))) {
-      drawOne(next, player, rng);
-    }
+    const triggeredEffects = definition.structuredEffects?.filter((effect) =>
+      (definition.signal && effect.trigger?.event === 'card-used' && effect.ability === 'automatic')
+      || (definition.subtype === 'instant' && effect.ability === 'instant')
+      || (!definition.signal && definition.subtype !== 'instant' && effect.ability === 'enter')) ?? [];
+    enqueueEffects(next, { controllerId: player.id, sourceInstanceId: card.instanceId }, triggeredEffects);
+    continueEffectResolution(next, rng);
     addEvent(next, 'play-card', player.id, `${player.id} 使用了《${definition.name}》`);
     if (next.pendingAttack) {
       next.pendingAttack.priorityPlayerId = opponentId(next, command.playerId);
       next.pendingAttack.consecutivePasses = 0;
+    } else if (next.priorityWindow) {
+      next.priorityWindow.priorityPlayerId = opponentId(next, command.playerId);
+      next.priorityWindow.consecutivePasses = 0;
     }
   } else if (command.type === 'ELIMINATE_SIGNALS' && next.phase === 'main' && next.activePlayerId === command.playerId && !next.pendingAttack) {
     if (command.startIndex < 0 || command.startIndex + 2 >= player.signals.length) return reject(state, 'ILLEGAL_ACTION', '必须消除三张相邻信号球');
@@ -538,6 +584,7 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
       ...(command.targetSlot === undefined ? {} : { targetSlot: command.targetSlot }),
       priorityPlayerId: opponentId(next, player.id),
       consecutivePasses: 0,
+      stage: 'response',
     };
     addEvent(next, 'attack-declared', player.id, `${player.id} 宣言攻击`);
   } else if (command.type === 'BLOCK' && next.pendingAttack?.priorityPlayerId === command.playerId && command.playerId !== next.activePlayerId) {
@@ -552,21 +599,14 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
     next.pendingAttack.consecutivePasses += 1;
     next.pendingAttack.priorityPlayerId = opponentId(next, command.playerId);
     if (next.pendingAttack.consecutivePasses >= 2) resolveAttack(next, rng);
+  } else if (command.type === 'PASS_RESPONSE' && next.priorityWindow?.priorityPlayerId === command.playerId) {
+    next.priorityWindow.consecutivePasses += 1;
+    next.priorityWindow.priorityPlayerId = opponentId(next, command.playerId);
+    if (next.priorityWindow.consecutivePasses >= 2) finishTurn(next, next.activePlayerId);
   } else if (command.type === 'END_PHASE' && next.phase === 'main' && next.activePlayerId === command.playerId && !next.pendingAttack) {
-    for (let i = player.energy.length - 1; i >= 0; i -= 1) {
-      if (player.energy[i]!.face === 'down') player.graveyard.push(...player.energy.splice(i, 1));
-    }
-    while (player.hand.length > 7) player.graveyard.push(player.hand.pop()!);
-    for (const card of player.field) if (card) { delete card.temporaryPp; delete card.temporaryDp; }
-    next.continuousModifiers = next.continuousModifiers.filter((modifier) => {
-      if (modifier.duration.kind === 'turn') return false;
-      if (modifier.duration.kind === 'next-turn' && modifier.controllerId === command.playerId && next.turn > modifier.createdTurn) return false;
-      return true;
-    });
-    next.activePlayerId = opponentId(next, command.playerId);
-    next.phase = 'upright';
-    next.turn += 1;
-    addEvent(next, 'turn-ended', command.playerId, `${command.playerId} 结束回合`);
+    next.phase = 'end';
+    next.priorityWindow = { kind: 'end-phase', priorityPlayerId: command.playerId, consecutivePasses: 0 };
+    addEvent(next, 'end-phase-window', command.playerId, `${command.playerId} 进入结束阶段瞬时窗口`);
   } else {
     return reject(state, 'ILLEGAL_ACTION', '该操作当前不可执行');
   }

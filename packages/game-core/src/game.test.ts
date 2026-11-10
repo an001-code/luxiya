@@ -198,9 +198,16 @@ describe('commands', () => {
     const secondPass = applyCommand(firstPass.state, {
       type: 'PASS_RESPONSE', commandId: 'pass-2', playerId: attackerId, expectedVersion: firstPass.state.version,
     }, sequenceRng([0.1]));
-    expect(secondPass.state.pendingAttack).toBeNull();
-    expect(secondPass.state.players[defenderId]!.corruption).toBe(1);
-    expect(secondPass.state.players[defenderId]!.energy.at(-1)?.face).toBe('down');
+    const resolved = secondPass.state.pendingDecision ? applyCommand(secondPass.state, {
+      type: 'RESOLVE_EFFECT_DECISION', commandId: 'charge-choice', playerId: attackerId,
+      expectedVersion: secondPass.state.version, decisionId: secondPass.state.pendingDecision.id,
+      optionId: secondPass.state.pendingDecision.options.find((option) => option.id === 'pp-plus-2000')?.id
+        ?? secondPass.state.pendingDecision.options[0]!.id,
+      selectedInstanceIds: [],
+    }, sequenceRng([0.1])) : secondPass;
+    expect(resolved.state.pendingAttack).toBeNull();
+    expect(resolved.state.players[defenderId]!.corruption).toBe(1);
+    expect(resolved.state.players[defenderId]!.energy.at(-1)?.face).toBe('down');
   });
 
   test('cleans dark energy and discards down to seven cards at end of turn', () => {
@@ -209,8 +216,15 @@ describe('commands', () => {
     state.phase = 'main';
     player.hand = Array.from({ length: 9 }, (_, index) => ({ instanceId: `hand-${index}`, cardId: 'ST01-006', face: 'up' as const, rested: false }));
     player.energy.push({ instanceId: 'dark-cost', cardId: 'ST01-005', face: 'down', rested: false });
-    const result = applyCommand(state, {
+    const opened = applyCommand(state, {
       type: 'END_PHASE', commandId: 'end', playerId: player.id, expectedVersion: state.version,
+    }, sequenceRng([0.1]));
+    const opponentId = state.playerOrder.find((id) => id !== player.id)!;
+    const firstPass = applyCommand(opened.state, {
+      type: 'PASS_RESPONSE', commandId: 'end-pass-1', playerId: player.id, expectedVersion: opened.state.version,
+    }, sequenceRng([0.1]));
+    const result = applyCommand(firstPass.state, {
+      type: 'PASS_RESPONSE', commandId: 'end-pass-2', playerId: opponentId, expectedVersion: firstPass.state.version,
     }, sequenceRng([0.1]));
     expect(result.state.players[player.id]!.hand).toHaveLength(7);
     expect(result.state.players[player.id]!.energy.every((card) => card.face === 'up')).toBe(true);
@@ -280,7 +294,7 @@ describe('commands', () => {
     expect(createPlayerView(state, player.id).legalActions.some((action) => action.type === 'DECLARE_ATTACK')).toBe(true);
   });
 
-  test('applies the default red charge choice before combat damage', () => {
+  test('applies the selected red charge choice before combat damage', () => {
     const state = createGame(['p1', 'p2'], developmentDeck, sequenceRng([0.1]));
     const attackerId = state.activePlayerId;
     const defenderId = state.playerOrder.find((id) => id !== attackerId)!;
@@ -290,6 +304,11 @@ describe('commands', () => {
     const declared = applyCommand(state, { type: 'DECLARE_ATTACK', commandId: 'red-attack', playerId: attackerId, expectedVersion: state.version, attackerSlot: 0, target: 'player' }, sequenceRng([0.1]));
     const pass1 = applyCommand(declared.state, { type: 'PASS_RESPONSE', commandId: 'red-pass-1', playerId: defenderId, expectedVersion: declared.state.version }, sequenceRng([0.1]));
     const pass2 = applyCommand(pass1.state, { type: 'PASS_RESPONSE', commandId: 'red-pass-2', playerId: attackerId, expectedVersion: pass1.state.version }, sequenceRng([0.1]));
-    expect(pass2.state.players[defenderId]!.corruption).toBe(3);
+    const choice = applyCommand(pass2.state, {
+      type: 'RESOLVE_EFFECT_DECISION', commandId: 'red-dp-choice', playerId: attackerId,
+      expectedVersion: pass2.state.version, decisionId: pass2.state.pendingDecision!.id,
+      optionId: 'dp-plus-one', selectedInstanceIds: [],
+    }, sequenceRng([0.1]));
+    expect(choice.state.players[defenderId]!.corruption).toBe(3);
   });
 });

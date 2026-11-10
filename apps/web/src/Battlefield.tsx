@@ -146,7 +146,7 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
 
   const primaryAction = () => {
     if (view.phase === 'mulligan') onCommand({ type: 'MULLIGAN', instanceIds: mulliganIds });
-    else if (view.pendingAttack) onCommand({ type: 'PASS_RESPONSE' });
+    else if (view.pendingAttack || view.priorityWindow) onCommand({ type: 'PASS_RESPONSE' });
     else if (view.phase === 'upright' || view.phase === 'draw') onCommand({ type: 'ADVANCE_PHASE' });
     else if (view.phase === 'energy') onCommand(actionCardId ? { type: 'SET_ENERGY', instanceId: actionCardId } : { type: 'SET_ENERGY' });
     else if (view.phase === 'main') onCommand({ type: 'END_PHASE' });
@@ -161,7 +161,7 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
     } else onCommand({ type: 'PLAY_CARD', instanceId: actionCard.instanceId, fieldSlot: view.self.field.findIndex((card) => card === null), paymentIds });
   };
 
-  const actionLabel = view.phase === 'mulligan' ? `确认调度 (${mulliganIds.length})` : view.pendingAttack ? '不响应' : view.phase === 'energy' ? (actionCardId ? '放置为费用' : '跳过填充') : view.phase === 'main' ? '结束阶段' : '推进阶段';
+  const actionLabel = view.phase === 'mulligan' ? `确认调度 (${mulliganIds.length})` : (view.pendingAttack || view.priorityWindow) ? '不响应' : view.phase === 'energy' ? (actionCardId ? '放置为费用' : '跳过填充') : view.phase === 'main' ? '结束阶段' : '推进阶段';
   const fieldActionAt = (index: number): { label: string; action: FieldAction } | null => {
     const block = view.legalActions.find((action): action is Extract<LegalAction, { type: 'BLOCK' }> => action.type === 'BLOCK' && action.blockerSlot === index);
     if (block) return { label: '阻挡', action: block };

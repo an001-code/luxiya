@@ -81,9 +81,18 @@ describe('common structured effect interpreter', () => {
     ]));
     expect(result.state.effectStack).toEqual([]);
 
-    const ended = applyCommand(result.state, {
+    const opened = applyCommand(result.state, {
       type: 'END_PHASE', commandId: 'end-modifier-turn', playerId: controllerId,
       expectedVersion: result.state.version,
+    }, sequenceRng([0.1]));
+    const opponentId = result.state.playerOrder.find((id) => id !== controllerId)!;
+    const firstPass = applyCommand(opened.state, {
+      type: 'PASS_RESPONSE', commandId: 'modifier-end-pass-1', playerId: controllerId,
+      expectedVersion: opened.state.version,
+    }, sequenceRng([0.1]));
+    const ended = applyCommand(firstPass.state, {
+      type: 'PASS_RESPONSE', commandId: 'modifier-end-pass-2', playerId: opponentId,
+      expectedVersion: firstPass.state.version,
     }, sequenceRng([0.1]));
     expect(ended.state.continuousModifiers).toEqual([]);
   });

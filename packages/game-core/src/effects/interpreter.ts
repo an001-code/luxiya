@@ -12,6 +12,7 @@ import type {
 } from '@pgr/protocol';
 import { advanceEffectFrameTargets, createEffectFrame } from './state.js';
 import {
+  cardsInZone,
   effectPlayerId,
   locateCard,
   matchesCardFilter,
@@ -51,7 +52,7 @@ const sourceDefinition = (state: GameState, frame: EffectFrame) => {
 
 const effectValue = (state: GameState, frame: EffectFrame, value: EffectValue): number => {
   if (value.kind === 'fixed') return value.value;
-  if (value.kind === 'selected-count') return frame.selectedTargets[value.targetId]?.length ?? 0;
+  if (value.kind === 'selected-count') return (frame.selectedTargets[value.targetId]?.length ?? 0) * (value.multiplier ?? 1);
   const definition = sourceDefinition(state, frame);
   if (value.stat === 'pp') return definition?.pp ?? 0;
   if (value.stat === 'dp') return definition?.dp ?? 0;
@@ -59,7 +60,7 @@ const effectValue = (state: GameState, frame: EffectFrame, value: EffectValue): 
 };
 
 const targetCards = (state: GameState, frame: EffectFrame, targetId: string): CardInstance[] =>
-  (frame.selectedTargets[targetId] ?? []).flatMap((instanceId) => {
+  (targetId === 'source' ? [frame.sourceInstanceId] : frame.selectedTargets[targetId] ?? []).flatMap((instanceId) => {
     const located = locateCard(state, instanceId);
     return located ? [located.card] : [];
   });
@@ -239,7 +240,9 @@ const addModifier = (
     sourceInstanceId: frame.sourceInstanceId,
     controllerId: frame.controllerId,
     kind: action.kind === 'modify-stat' ? 'stat' : 'signal-as',
-    targetInstanceIds: [...(frame.selectedTargets[action.targetId] ?? [])],
+    targetInstanceIds: action.targetId === 'source'
+      ? [frame.sourceInstanceId]
+      : [...(frame.selectedTargets[action.targetId] ?? [])],
     value,
     ...(action.kind === 'modify-stat' ? { stat: action.stat, operation: action.operation } : { count: action.count }),
     duration: action.duration,
@@ -247,7 +250,7 @@ const addModifier = (
   });
 };
 
-const executeAction = (state: GameState, frame: EffectFrame, action: EffectAction, rng: EffectRng): void => {
+const executeAction = (state: GameState, frame: EffectFrame, action: EffectAction, rng: EffectRng): boolean => {
   if (action.kind === 'draw') {
     const playerId = effectPlayerId(state, frame.controllerId, action.player);
     for (let count = effectValue(state, frame, action.amount); count > 0; count -= 1) drawOne(state, playerId, rng);
@@ -279,16 +282,69 @@ const executeAction = (state: GameState, frame: EffectFrame, action: EffectActio
     else player.corruption = Math.max(0, player.corruption - value);
   } else if (action.kind === 'signal-as') {
     addModifier(state, frame, action, action.color);
+  } else if (action.kind === 'choose') {
+    if (!frame.selectedOptionId) {
+      frame.status = 'waiting-for-decision';
+      state.pendingDecision = {
+        id: `${frame.id}:choice:${frame.actionIndex}`,
+        frameId: frame.id,
+        playerId: frame.controllerId,
+        kind: 'choose-option',
+        purpose: 'choice',
+        prompt: '请选择一项效果',
+        min: 0,
+        max: 0,
+        options: action.options.map((option) => ({ id: option.id, label: option.label })),
+      };
+      return false;
+    }
+    const option = action.options.find((candidate) => candidate.id === frame.selectedOptionId);
+    if (option && conditionListMet(state, frame, option.conditions ?? [])) {
+      for (const nested of option.actions) executeAction(state, frame, nested, rng);
+    }
+    delete frame.selectedOptionId;
   }
+  return true;
 };
+
+const conditionListMet = (state: GameState, frame: EffectFrame, conditions: StructuredEffect['conditions']): boolean => conditions.every((condition) => {
+  if (condition.kind === 'controller-has-card') {
+    const playerId = effectPlayerId(state, frame.controllerId, condition.player);
+    const matches = cardsInZone(state, playerId, condition.zone).filter((card) => {
+      const definition = state.cardDefinitions[card.cardId];
+      return Boolean(definition && matchesCardFilter(card, definition, condition.filter));
+    });
+    return matches.length >= condition.min;
+  }
+  if (condition.kind === 'corruption-compare') {
+    const left = state.players[effectPlayerId(state, frame.controllerId, condition.left)]!.corruption;
+    const right = state.players[effectPlayerId(state, frame.controllerId, condition.right)]!.corruption;
+    if (condition.operator === 'lt') return left < right;
+    if (condition.operator === 'lte') return left <= right;
+    if (condition.operator === 'eq') return left === right;
+    if (condition.operator === 'gte') return left >= right;
+    return left > right;
+  }
+  if (condition.kind === 'turn-event') {
+    const playerId = effectPlayerId(state, frame.controllerId, condition.player);
+    const eventTypes = condition.event === 'corruption-changed' ? ['damage', 'deck-refresh', 'corruption-changed'] : [condition.event];
+    return state.events.some((gameEvent) => gameEvent.createdAtTurn === state.turn
+      && gameEvent.playerId === playerId && eventTypes.includes(gameEvent.type));
+  }
+  if (condition.kind === 'source-attached') return false;
+  return false;
+});
+
+const conditionsMet = (state: GameState, frame: EffectFrame): boolean => conditionListMet(state, frame, frame.effect.conditions);
 
 export const enqueueEffects = (state: GameState, source: EffectSource, effects: StructuredEffect[]): void => {
   for (let index = effects.length - 1; index >= 0; index -= 1) {
-    state.effectStack.push(createEffectFrame(state, {
+    const frame = createEffectFrame(state, {
       controllerId: source.controllerId,
       sourceInstanceId: source.sourceInstanceId,
       effect: effects[index]!,
-    }));
+    });
+    if (conditionsMet(state, frame)) state.effectStack.push(frame);
   }
 };
 
@@ -323,7 +379,7 @@ export const continueEffectResolution = (state: GameState, rng: EffectRng): void
       continue;
     }
     const action = frame.effect.actions[frame.actionIndex]!;
-    executeAction(state, frame, action, rng);
+    if (!executeAction(state, frame, action, rng)) return;
     frame.actionIndex += 1;
   }
 };

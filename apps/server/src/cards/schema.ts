@@ -10,7 +10,7 @@ const durationSchema = z.discriminatedUnion('kind', [
 ]);
 const valueSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('fixed'), value: z.number().int() }),
-  z.object({ kind: z.literal('selected-count'), targetId: z.string().trim().min(1) }),
+  z.object({ kind: z.literal('selected-count'), targetId: z.string().trim().min(1), multiplier: z.number().optional() }),
   z.object({ kind: z.literal('source-stat'), stat: z.enum(['pp', 'dp', 'charge']) }),
 ]);
 const cardFilterSchema = z.object({
@@ -52,7 +52,7 @@ const actionSchema: z.ZodType<EffectAction> = z.lazy(() => z.discriminatedUnion(
   z.object({ kind: z.literal('search'), player: playerSchema, count: z.number().int().min(1), filter: cardFilterSchema, destination: zoneSchema, remainder: z.enum(['shuffle', 'deck-bottom']) }),
   z.object({ kind: z.literal('play'), targetId: z.string().trim().min(1), ignoreCost: z.boolean() }),
   z.object({ kind: z.literal('equip'), targetId: z.string().trim().min(1), sourceTargetId: z.string().trim().min(1) }),
-  z.object({ kind: z.literal('choose'), options: z.array(z.object({ id: z.string().trim().min(1), label: z.string().trim().min(1), actions: z.array(actionSchema).min(1) })).min(1) }),
+  z.object({ kind: z.literal('choose'), options: z.array(z.object({ id: z.string().trim().min(1), label: z.string().trim().min(1), conditions: z.array(conditionSchema).optional(), actions: z.array(actionSchema).min(1) })).min(1) }),
   customNodeSchema,
 ])) as z.ZodType<EffectAction>;
 
