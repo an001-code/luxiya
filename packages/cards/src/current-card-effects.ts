@@ -28,6 +28,25 @@ const equipmentPp: StructuredEffect = {
 };
 
 export const currentCardEffects: Record<string, StructuredEffect[]> = {
+  'ST01-001': [
+    {
+      id: 'lucia-evolution', sourceEffectId: 'evolve_lucia', ability: 'permanent',
+      conditions: [], costs: [], targets: [], actions: [{ kind: 'custom', customHandlerId: 'evolve_lucia' }], duration: permanent,
+    },
+    {
+      id: 'gray-raven-top-five', sourceEffectId: 'enter_search_gray_raven', ability: 'enter', trigger: event('card-entered'),
+      conditions: [], costs: [{ kind: 'discard', player: 'self', amount: fixed(1) }], targets: [],
+      actions: [{ kind: 'custom', customHandlerId: 'search_top_five_gray_raven' }],
+    },
+    {
+      id: 'lucia-blue-signal-activated', ability: 'activated', conditions: [], costs: [], targets: [],
+      actions: [{ kind: 'custom', customHandlerId: 'lucia_blue_activated' }],
+    },
+  ],
+  'PR-016': [
+    { id: 'sealed-blade-haste', sourceEffectId: 'weapon_haste', ability: 'permanent', conditions: [], costs: [], targets: [], actions: [{ kind: 'custom', customHandlerId: 'weapon_haste' }], duration: permanent },
+    { id: 'sealed-blade-leave-recovery', sourceEffectId: 'leave_recover_sealed_blade', ability: 'automatic', trigger: event('card-left'), conditions: [], costs: [], targets: [], actions: [{ kind: 'custom', customHandlerId: 'leave_recover_sealed_blade' }] },
+  ],
   'ST01-005': [
     {
       id: 'red-lotus-enter-draw', sourceEffectId: 'enter_draw_discard', ability: 'enter', trigger: event('card-entered'),
@@ -75,6 +94,15 @@ export const currentCardEffects: Record<string, StructuredEffect[]> = {
       { kind: 'modify-stat', targetId: 'boosted', stat: 'pp', operation: 'add', value: { kind: 'selected-count', targetId: 'extra-discard', multiplier: 1000 }, duration: turn },
     ],
   }],
+  'BP01-037': [
+    {
+      id: 'triple-one-signal', sourceEffectId: 'triple_signal', ability: 'automatic', trigger: event('card-used'),
+      conditions: [{ kind: 'controller-has-card', player: 'self', zone: 'field', filter: { names: ['曲'] }, min: 1 }],
+      costs: [], targets: [{ id: 'tripled', kind: 'cards', player: 'self', zone: 'signals', min: 1, max: 1 }],
+      actions: [{ kind: 'custom', customHandlerId: 'triple_signal' }],
+    },
+    { id: 'qu-processing-replacement', sourceEffectId: 'qu_energy_replacement', ability: 'automatic', trigger: event('card-moved-to-processing'), conditions: [], costs: [], targets: [], actions: [{ kind: 'custom', customHandlerId: 'qu_energy_replacement' }] },
+  ],
   'PR-006': [{
     id: 'swap-faceup-energy', sourceEffectId: 'enter_swap_energy', ability: 'enter', trigger: event('card-entered'),
     conditions: [],
@@ -121,7 +149,20 @@ export const currentCardEffects: Record<string, StructuredEffect[]> = {
     conditions: [{ kind: 'turn-event', event: 'corruption-changed', player: 'self' }],
     costs: [], targets: [], actions: [{ kind: 'draw', player: 'self', amount: fixed(1) }],
   }],
-  'BP01-023': [equipmentPp],
+  'BP01-023': [equipmentPp, {
+    id: 'sealed-blade-attack', sourceEffectId: 'sealed_blade', ability: 'automatic', trigger: event('attack-declared'),
+    conditions: [], costs: [], targets: [], actions: [{ kind: 'custom', customHandlerId: 'sealed_blade' }], oncePerTurn: true,
+  }],
+  'BP01-012': [{
+    id: 'support-recover-signal', sourceEffectId: 'support_recover_signal', ability: 'activated',
+    conditions: [],
+    costs: [
+      { kind: 'discard', player: 'self', amount: fixed(2), filter: { types: ['character'] } },
+      { kind: 'rest', target: 'source' },
+    ],
+    targets: [{ id: 'recovered-signal', kind: 'cards', player: 'self', zone: 'graveyard', min: 1, max: 1, filter: { signals: ['red', 'blue', 'yellow'] } }],
+    actions: [{ kind: 'move-card', targetId: 'recovered-signal', to: 'signals', position: 'top', face: 'up' }],
+  }],
 };
 
 export const effectsForCurrentCard = (cardId: string): StructuredEffect[] | undefined =>

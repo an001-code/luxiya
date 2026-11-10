@@ -18,6 +18,14 @@ export const registeredCustomEffectHandlers = new Set([
   'reorder_signals',
   'blue_signal_discount',
   'floating_dp',
+  'evolve_lucia',
+  'search_top_five_gray_raven',
+  'lucia_blue_activated',
+  'leave_recover_sealed_blade',
+  'triple_signal',
+  'qu_energy_replacement',
+  'sealed_blade',
+  'support_recover_signal',
 ]);
 
 const customHandlerErrors = (effectId: string, nodes: Array<EffectAction | EffectCondition | EffectCost>): string[] => {

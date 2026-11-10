@@ -46,7 +46,9 @@ export interface CardInstance {
   temporaryPp?: number;
   temporaryDp?: number;
   attached?: CardInstance[];
-  mode?: 'normal' | 'floating';
+  underneath?: CardInstance[];
+  mode?: 'normal' | 'floating' | 'revealed';
+  evolved?: boolean;
   returnAtTurn?: number;
 }
 
@@ -58,6 +60,7 @@ export interface PendingAttack {
   priorityPlayerId: PlayerId;
   consecutivePasses: number;
   stage: 'response' | 'combat';
+  maxBlockerPpExclusive?: number;
 }
 
 export interface PriorityWindow {
@@ -179,7 +182,7 @@ export type GameCommand = CommandBase & (
   | { type: 'MULLIGAN'; instanceIds: string[] }
   | { type: 'ADVANCE_PHASE' }
   | { type: 'SET_ENERGY'; instanceId?: string }
-  | { type: 'PLAY_CARD'; instanceId: string; fieldSlot?: number; targetSlot?: number; paymentIds?: string[]; discountSignalIds?: string[] }
+  | { type: 'PLAY_CARD'; instanceId: string; fieldSlot?: number; targetSlot?: number; evolutionTargetSlot?: number; paymentIds?: string[]; discountSignalIds?: string[] }
   | { type: 'ELIMINATE_SIGNALS'; startIndex: number }
   | { type: 'ACTIVATE_ABILITY'; sourceInstanceId: string; abilityIndex: number; targetInstanceIds?: string[] }
   | { type: 'DECLARE_ATTACK'; attackerSlot: number; target: 'player' | 'character'; targetSlot?: number }
@@ -211,9 +214,10 @@ export interface GameResult {
 }
 
 export interface HiddenZoneView { count: number }
-export interface PublicCardView extends Omit<CardInstance, 'cardId' | 'attached'> {
+export interface PublicCardView extends Omit<CardInstance, 'cardId' | 'attached' | 'underneath'> {
   cardId: string | null;
   attached?: PublicCardView[];
+  underneath?: PublicCardView[];
 }
 
 export interface PlayerBoardView {

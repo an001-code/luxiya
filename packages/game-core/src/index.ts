@@ -26,6 +26,7 @@ export { registeredCustomEffectHandlers, validateExecutableEffect } from './effe
 export { resolveEffectDecision, startEffectResolution } from './effects/state.js';
 export { continueEffectResolution, enqueueEffects } from './effects/interpreter.js';
 export { selectCardInstanceIds } from './effects/selectors.js';
+export { applyQuProcessingReplacement } from './effects/current-card-handlers.js';
 
 export type Rng = () => number;
 
@@ -170,6 +171,7 @@ const opponentId = (state: GameState, playerId: string): string =>
   state.playerOrder.find((id) => id !== playerId) ?? state.playerOrder[0];
 
 const isHaste = (state: GameState, card: CardInstance): boolean => {
+  if (card.evolved) return true;
   const definition = definitionFor(state, card.cardId);
   if (definition.structuredEffects?.some((effect) => effect.sourceEffectId === 'haste')) return true;
   return definition.effectIds.includes('weapon_haste') && Boolean(card.attached?.some((item) => definitionFor(state, item.cardId).traits.includes('封刃太刀')));
@@ -193,6 +195,15 @@ const effectiveDp = (state: GameState, card: CardInstance): number => effectiveS
   conditionalFloatingDp(state, controllingPlayer(state, card) ?? state.players[state.activePlayerId]!, card.cardId, definitionFor(state, card.cardId).dp ?? 0)
   + (card.temporaryDp ?? 0));
 
+const evolutionTargetSlots = (state: GameState, player: PlayerState, cardId: string): number[] => {
+  if (!definitionFor(state, cardId).structuredEffects?.some((effect) => effect.sourceEffectId === 'evolve_lucia')) return [];
+  return player.field.flatMap((card, slot) => {
+    if (!card) return [];
+    const definition = definitionFor(state, card.cardId);
+    return definition.type === 'character' && definition.cost <= 4 && definition.traits.includes('露西亚') ? [slot] : [];
+  });
+};
+
 export const getLegalActions = (state: GameState, playerId: string): LegalAction[] => {
   if (state.status !== 'playing') return [];
   const player = state.players[playerId];
@@ -211,7 +222,8 @@ export const getLegalActions = (state: GameState, playerId: string): LegalAction
     const actions: LegalAction[] = [{ type: 'PASS_RESPONSE' }];
     if (playerId !== state.activePlayerId && state.pendingAttack.blockerSlot === undefined) {
       player.field.forEach((card, blockerSlot) => {
-        if (card && !card.rested) actions.push({ type: 'BLOCK', blockerSlot });
+        const threshold = state.pendingAttack?.maxBlockerPpExclusive;
+        if (card && !card.rested && (threshold === undefined || effectivePp(state, card) > threshold)) actions.push({ type: 'BLOCK', blockerSlot });
       });
     }
     for (const card of player.hand) {
@@ -236,15 +248,22 @@ export const getLegalActions = (state: GameState, playerId: string): LegalAction
   const actions: LegalAction[] = [{ type: 'END_PHASE' }];
   for (const card of player.hand) {
     const definition = definitionFor(state, card.cardId);
-    const minimumCost = discountedCost(state, player, card.cardId, supportsBlueDiscount(state, card.cardId) ? blueDiscountSignals(state, player) : []) ?? definition.cost;
+    const canEvolve = evolutionTargetSlots(state, player, card.cardId).length > 0;
+    const minimumCost = canEvolve ? 2 : discountedCost(state, player, card.cardId, supportsBlueDiscount(state, card.cardId) ? blueDiscountSignals(state, player) : []) ?? definition.cost;
     if (definition.subtype === 'instant' || !canPay(state, player, card.cardId, minimumCost)) continue;
     const hasEmptySlot = player.field.some((item) => item === null);
     const hasEquipmentTarget = definition.subtype === 'equipment' && player.field.some((item) => item && definitionFor(state, item.cardId).type === 'character' && !item.attached?.length);
-    if ((definition.type === 'character' || definition.subtype === 'support') && !hasEmptySlot) continue;
+    if ((definition.type === 'character' || definition.subtype === 'support') && !hasEmptySlot && !canEvolve) continue;
     if (definition.subtype === 'equipment' && !hasEmptySlot && !hasEquipmentTarget) continue;
     actions.push({ type: 'PLAY_CARD', instanceId: card.instanceId });
   }
   for (let startIndex = 0; startIndex + 2 < player.signals.length; startIndex += 1) actions.push({ type: 'ELIMINATE_SIGNALS', startIndex });
+  player.field.forEach((card) => {
+    if (!card || card.rested) return;
+    definitionFor(state, card.cardId).structuredEffects?.forEach((effect, abilityIndex) => {
+      if (effect.ability === 'activated') actions.push({ type: 'ACTIVATE_ABILITY', sourceInstanceId: card.instanceId, abilityIndex });
+    });
+  });
   player.field.forEach((card, attackerSlot) => {
     if (!card || card.rested || (card.enteredTurn === state.turn && !isHaste(state, card))) return;
     actions.push({ type: 'DECLARE_ATTACK', attackerSlot, target: 'player' });
@@ -266,7 +285,9 @@ const publicCard = (card: CardInstance, hideIdentity = false): PublicCardView =>
   ...(card.temporaryPp === undefined ? {} : { temporaryPp: card.temporaryPp }),
   ...(card.temporaryDp === undefined ? {} : { temporaryDp: card.temporaryDp }),
   ...(card.attached ? { attached: card.attached.map((item) => publicCard(item, hideIdentity)) } : {}),
+  ...(card.underneath ? { underneath: card.underneath.map((item) => publicCard(item, hideIdentity)) } : {}),
   ...(card.mode === undefined ? {} : { mode: card.mode }),
+  ...(card.evolved === undefined ? {} : { evolved: card.evolved }),
   ...(card.returnAtTurn === undefined ? {} : { returnAtTurn: card.returnAtTurn }),
 });
 
@@ -420,6 +441,26 @@ const damagePlayer = (state: GameState, player: PlayerState, amount: number, rng
   }
 };
 
+const sendFieldCardToGrave = (state: GameState, player: PlayerState, slot: number): void => {
+  const card = player.field[slot];
+  if (!card) return;
+  player.field[slot] = null;
+  const attached = card.attached ?? [];
+  const underneath = card.underneath ?? [];
+  delete card.attached;
+  delete card.underneath;
+  player.graveyard.push(card, ...underneath, ...attached);
+  const sealedBlade = attached.find((item) => item.cardId === 'BP01-023');
+  if (card.cardId === 'PR-016' && sealedBlade && player.signals.length > 0) {
+    player.graveyard.push(...player.signals.splice(0, 1));
+    const bladeIndex = player.graveyard.findIndex((item) => item.instanceId === sealedBlade.instanceId);
+    if (bladeIndex >= 0) {
+      const [recovered] = player.graveyard.splice(bladeIndex, 1);
+      player.field[slot] = { ...recovered!, enteredTurn: state.turn };
+    }
+  }
+};
+
 const resolveAttack = (state: GameState, rng: Rng): void => {
   const pending = state.pendingAttack;
   if (!pending) return;
@@ -440,8 +481,7 @@ const resolveAttack = (state: GameState, rng: Rng): void => {
   if (defenderSlot !== undefined) {
     const defender = defenderPlayer.field[defenderSlot];
     if (defender && effectivePp(state, attacker) >= effectivePp(state, defender)) {
-      defenderPlayer.field[defenderSlot] = null;
-      defenderPlayer.graveyard.push(defender);
+      sendFieldCardToGrave(state, defenderPlayer, defenderSlot);
       addEvent(state, 'character-destroyed', defenderPlayer.id, `${definitionFor(state, defender.cardId).name} 被战斗破坏`);
     }
   } else {
@@ -539,7 +579,11 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
       || next.priorityWindow?.priorityPlayerId === command.playerId
     ));
     if (!inResponse && (next.phase !== 'main' || next.activePlayerId !== command.playerId || definition.subtype === 'instant')) return reject(state, 'NOT_YOUR_ACTION', '当前不能使用该卡牌');
-    const playCost = discountedCost(next, player, card.cardId, command.discountSignalIds ?? []);
+    const evolutionSlot = command.evolutionTargetSlot;
+    if (evolutionSlot !== undefined && !evolutionTargetSlots(next, player, card.cardId).includes(evolutionSlot)) {
+      return reject(state, 'ILLEGAL_ACTION', '升变对象不合法');
+    }
+    const playCost = evolutionSlot === undefined ? discountedCost(next, player, card.cardId, command.discountSignalIds ?? []) : 2;
     if (playCost === null) return reject(state, 'ILLEGAL_ACTION', '费用折扣所选信号球不合法');
     if (!canPay(next, player, card.cardId, playCost)) return reject(state, 'ILLEGAL_ACTION', '费用或属性条件不满足');
     const payment = selectedPayment(next, player, card.cardId, command.paymentIds, playCost);
@@ -551,7 +595,15 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
     pay(player, payment);
     player.hand.splice(index, 1);
     card.face = 'up';
-    if (definition.signal) {
+    if (evolutionSlot !== undefined) {
+      const target = player.field[evolutionSlot]!;
+      player.field[evolutionSlot] = {
+        ...card,
+        enteredTurn: next.turn,
+        evolved: true,
+        underneath: [target, ...(target.underneath ?? [])],
+      };
+    } else if (definition.signal) {
       player.signals.unshift(card);
     } else if (definition.type === 'character' || definition.subtype === 'support') {
       const slot = command.fieldSlot ?? player.field.findIndex((item) => item === null);
@@ -567,7 +619,7 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
       player.field[slot] = { ...card, enteredTurn: next.turn };
     } else player.graveyard.push(card);
     const triggeredEffects = definition.structuredEffects?.filter((effect) =>
-      (definition.signal && effect.trigger?.event === 'card-used' && effect.ability === 'automatic')
+      (effect.trigger?.event === 'card-used' && effect.ability === 'automatic')
       || (definition.subtype === 'instant' && effect.ability === 'instant')
       || (!definition.signal && definition.subtype !== 'instant' && effect.ability === 'enter')) ?? [];
     enqueueEffects(next, { controllerId: player.id, sourceInstanceId: card.instanceId }, triggeredEffects);
@@ -580,6 +632,18 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
       next.priorityWindow.priorityPlayerId = opponentId(next, command.playerId);
       next.priorityWindow.consecutivePasses = 0;
     }
+  } else if (command.type === 'ACTIVATE_ABILITY' && next.phase === 'main' && next.activePlayerId === command.playerId && !next.pendingAttack) {
+    const source = player.field.find((fieldCard) => fieldCard?.instanceId === command.sourceInstanceId);
+    if (!source) return reject(state, 'ILLEGAL_ACTION', '能力来源不在战场');
+    const effect = definitionFor(next, source.cardId).structuredEffects?.[command.abilityIndex];
+    if (!effect || effect.ability !== 'activated') return reject(state, 'ILLEGAL_ACTION', '起动能力不存在');
+    if (effect.oncePerTurn && next.abilityUsage.some((usage) => usage.sourceInstanceId === source.instanceId && usage.effectId === effect.id && usage.turn === next.turn)) {
+      return reject(state, 'ILLEGAL_ACTION', '该能力本回合已经使用');
+    }
+    enqueueEffects(next, { controllerId: player.id, sourceInstanceId: source.instanceId }, [effect]);
+    continueEffectResolution(next, rng);
+    next.abilityUsage.push({ sourceInstanceId: source.instanceId, effectId: effect.id, playerId: player.id, turn: next.turn, count: 1 });
+    addEvent(next, 'ability-activated', player.id, `${player.id} 发动了《${definitionFor(next, source.cardId).name}》的起动能力`);
   } else if (command.type === 'ELIMINATE_SIGNALS' && next.phase === 'main' && next.activePlayerId === command.playerId && !next.pendingAttack) {
     if (command.startIndex < 0 || command.startIndex + 2 >= player.signals.length) return reject(state, 'ILLEGAL_ACTION', '必须消除三张相邻信号球');
     const removed = player.signals.splice(command.startIndex, 3);
@@ -602,6 +666,15 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
       consecutivePasses: 0,
       stage: 'response',
     };
+    const sealedBlade = attacker.attached?.find((item) => item.cardId === 'BP01-023');
+    const sealedBladeUsed = next.abilityUsage.some((usage) => usage.sourceInstanceId === sealedBlade?.instanceId
+      && usage.effectId === 'sealed-blade-attack' && usage.turn === next.turn);
+    const restable = player.field.find((fieldCard) => fieldCard && fieldCard.instanceId !== attacker.instanceId && !fieldCard.rested);
+    if (sealedBlade && definitionFor(next, attacker.cardId).name.includes('深红囚影') && !sealedBladeUsed && restable) {
+      restable.rested = true;
+      next.pendingAttack.maxBlockerPpExclusive = 4000;
+      next.abilityUsage.push({ sourceInstanceId: sealedBlade.instanceId, effectId: 'sealed-blade-attack', playerId: player.id, turn: next.turn, count: 1 });
+    }
     addEvent(next, 'attack-declared', player.id, `${player.id} 宣言攻击`);
     const attackEffects = definitionFor(next, attacker.cardId).structuredEffects?.filter((effect) =>
       effect.ability === 'automatic' && effect.trigger?.event === 'attack-declared') ?? [];
@@ -610,6 +683,9 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
   } else if (command.type === 'BLOCK' && next.pendingAttack?.priorityPlayerId === command.playerId && command.playerId !== next.activePlayerId) {
     const blocker = player.field[command.blockerSlot];
     if (!blocker || blocker.rested) return reject(state, 'ILLEGAL_ACTION', '该角色不能阻挡');
+    if (next.pendingAttack.maxBlockerPpExclusive !== undefined && effectivePp(next, blocker) <= next.pendingAttack.maxBlockerPpExclusive) {
+      return reject(state, 'ILLEGAL_ACTION', '该角色的 PP 不足以阻挡本次攻击');
+    }
     blocker.rested = true;
     next.pendingAttack.blockerSlot = command.blockerSlot;
     next.pendingAttack.priorityPlayerId = next.activePlayerId;
