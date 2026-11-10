@@ -16,8 +16,28 @@ const rejectCardError = (reply: FastifyReply, error: unknown): FastifyReply => {
 export const registerCardRoutes = (app: FastifyInstance, service: CardService, auth: AuthGuard): void => {
   app.get('/api/cards', async () => ({ cards: await service.listPublished() }));
 
+  app.get('/api/admin/cards', async (request, reply) => {
+    try {
+      await auth.requireUser(request, 'admin');
+      return { cards: await service.listAll() };
+    } catch (error) {
+      return rejectAuthError(reply, error);
+    }
+  });
+
   app.get<{ Params: { id: string } }>('/api/cards/:id/image', async (request, reply) => {
     const image = await service.findImage(request.params.id);
+    if (!image) return reply.code(404).send({ error: 'CARD_IMAGE_NOT_FOUND' });
+    return reply.type(image.mime).send(Buffer.from(image.bytes));
+  });
+
+  app.get<{ Params: { id: string } }>('/api/admin/cards/:id/image', async (request, reply) => {
+    try {
+      await auth.requireUser(request, 'admin');
+    } catch (error) {
+      return rejectAuthError(reply, error);
+    }
+    const image = await service.findAdminImage(request.params.id);
     if (!image) return reply.code(404).send({ error: 'CARD_IMAGE_NOT_FOUND' });
     return reply.type(image.mime).send(Buffer.from(image.bytes));
   });

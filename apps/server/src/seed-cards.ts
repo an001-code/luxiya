@@ -10,11 +10,22 @@ export const seedBuiltInCards = async (
 ): Promise<number> => {
   let inserted = 0;
   for (const definition of cardDefinitions) {
-    if (await repository.findCardById(definition.id)) continue;
+    const existing = await repository.findCardById(definition.id);
+    if (existing) {
+      if (existing.status === 'draft' && existing.version === 1 && !existing.imageData) {
+        await repository.saveCard({
+          ...existing,
+          ...definition,
+          structuredEffects: definition.structuredEffects ?? [],
+          updatedAt: now().toISOString(),
+        });
+      }
+      continue;
+    }
     const timestamp = now().toISOString();
     await repository.saveCard({
       ...definition,
-      structuredEffects: [],
+      structuredEffects: definition.structuredEffects ?? [],
       status: 'draft',
       version: 1,
       createdAt: timestamp,

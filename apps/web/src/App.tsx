@@ -19,6 +19,7 @@ export default function App() {
   const [authBusy, setAuthBusy] = useState(false);
   const [tab, setTab] = useState<PlatformTab>('lobby');
   const [cards, setCards] = useState<CardCatalogEntry[]>([]);
+  const [adminCards, setAdminCards] = useState<CardCatalogEntry[]>([]);
   const [decks, setDecks] = useState<DeckSummary[]>([]);
   const [selectedDeckId, setSelectedDeckId] = useState<string | null>(null);
   const [credentials, setCredentials] = useState<RoomCredentials | null>(() => {
@@ -30,12 +31,14 @@ export default function App() {
   const [error, setError] = useState('');
   const socketRef = useRef<GameSocket | null>(null);
 
-  const loadPlatform = useCallback(async () => {
-    const [cardBody, deckBody] = await Promise.all([
+  const loadPlatform = useCallback(async (includeAdminCards: boolean) => {
+    const [cardBody, deckBody, adminCardBody] = await Promise.all([
       apiRequest<{ cards: CardCatalogEntry[] }>('/api/cards'),
       apiRequest<{ decks: DeckSummary[] }>('/api/decks'),
+      includeAdminCards ? apiRequest<{ cards: CardCatalogEntry[] }>('/api/admin/cards') : Promise.resolve({ cards: [] }),
     ]);
     setCards(cardBody.cards);
+    setAdminCards(adminCardBody.cards);
     for (const card of cardBody.cards) cardsById.set(card.id, card);
     setDecks(deckBody.decks);
     setSelectedDeckId((current) => current ?? deckBody.decks[0]?.id ?? null);
@@ -43,7 +46,7 @@ export default function App() {
 
   useEffect(() => {
     void apiRequest<{ user: UserSummary }>('/api/auth/me').then(({ user: current }) => {
-      setUser(current); return loadPlatform();
+      setUser(current); return loadPlatform(current.role === 'admin');
     }).catch(() => setUser(null)).finally(() => setCheckingSession(false));
   }, [loadPlatform]);
 
@@ -63,7 +66,7 @@ export default function App() {
     setAuthBusy(true); setError('');
     try {
       const result = await apiRequest<{ user: UserSummary }>(`/api/auth/${mode}`, { method: 'POST', body: JSON.stringify({ username, password }) });
-      setUser(result.user); await loadPlatform();
+      setUser(result.user); await loadPlatform(result.user.role === 'admin');
     } catch (authError) { setError(authError instanceof Error ? authError.message : '登录失败'); }
     finally { setAuthBusy(false); }
   };
@@ -105,5 +108,5 @@ export default function App() {
       </section>
     </main>;
 
-  return <div className="platform-shell">{navigation}{tab === 'lobby' && lobby}{tab === 'cards' && <CardLibrary cards={cards} loading={false} />}{tab === 'decks' && (decks.length ? <DeckEditor cards={cards} decks={decks} selectedDeckId={selectedDeckId} onSelectDeck={setSelectedDeckId} onSave={(deck) => void apiRequest(`/api/decks/${deck.id}`, { method: 'PUT', body: JSON.stringify({ name: deck.name, cards: deck.cards }) }).then(loadPlatform)} onActivate={(id) => void apiRequest(`/api/decks/${id}/activate`, { method: 'POST' }).then(loadPlatform)} /> : <main className="empty-platform"><h1>还没有牌组</h1><p>先创建一个空白草稿，再从已发布卡牌中开始构筑。</p><button className="primary-action" onClick={() => void apiRequest('/api/decks', { method: 'POST', body: JSON.stringify({ name: '新建牌组', cards: [] }) }).then(loadPlatform)}>创建牌组草稿</button></main>)}{tab === 'admin' && user.role === 'admin' && <AdminCardEditor onSave={(input: CardDraftInput) => void apiRequest('/api/admin/cards', { method: 'POST', body: JSON.stringify(input) }).then(loadPlatform).catch((saveError) => setError(saveError instanceof Error ? saveError.message : '保存失败'))} onPublish={(id) => void apiRequest(`/api/admin/cards/${id}/publish`, { method: 'POST' }).then(loadPlatform).catch((publishError) => setError(publishError instanceof ApiError ? [publishError.message, ...publishError.details].join('；') : '发布失败'))} />}{error && tab !== 'lobby' && <div className="global-error">{error}</div>}</div>;
+  return <div className="platform-shell">{navigation}{tab === 'lobby' && lobby}{tab === 'cards' && <CardLibrary cards={cards} loading={false} />}{tab === 'decks' && (decks.length ? <DeckEditor cards={cards} decks={decks} selectedDeckId={selectedDeckId} onSelectDeck={setSelectedDeckId} onSave={(deck) => void apiRequest(`/api/decks/${deck.id}`, { method: 'PUT', body: JSON.stringify({ name: deck.name, cards: deck.cards }) }).then(() => loadPlatform(user.role === 'admin'))} onActivate={(id) => void apiRequest(`/api/decks/${id}/activate`, { method: 'POST' }).then(() => loadPlatform(user.role === 'admin'))} /> : <main className="empty-platform"><h1>还没有牌组</h1><p>先创建一个空白草稿，再从已发布卡牌中开始构筑。</p><button className="primary-action" onClick={() => void apiRequest('/api/decks', { method: 'POST', body: JSON.stringify({ name: '新建牌组', cards: [] }) }).then(() => loadPlatform(user.role === 'admin'))}>创建牌组草稿</button></main>)}{tab === 'admin' && user.role === 'admin' && <AdminCardEditor cards={adminCards} onSave={(input: CardDraftInput, existingId) => apiRequest(existingId ? `/api/admin/cards/${existingId}` : '/api/admin/cards', { method: existingId ? 'PUT' : 'POST', body: JSON.stringify(input) }).then(() => loadPlatform(true)).catch((saveError) => { setError(saveError instanceof Error ? saveError.message : '保存失败'); })} onPublish={(id) => apiRequest(`/api/admin/cards/${id}/publish`, { method: 'POST' }).then(() => loadPlatform(true)).catch((publishError) => { setError(publishError instanceof ApiError ? [publishError.message, ...publishError.details].join('；') : '发布失败'); })} />}{error && tab !== 'lobby' && <div className="global-error">{error}</div>}</div>;
 }

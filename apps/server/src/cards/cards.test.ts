@@ -39,9 +39,42 @@ describe('admin card API', () => {
     const seeded = await repository.findCardById('BP01-079');
     expect(seeded).toMatchObject({ name: '第五次交锋', status: 'draft', version: 1 });
 
+    await repository.saveCard({ ...seeded!, text: ['旧版摘要'], version: 1 });
+    await seedBuiltInCards(repository, () => new Date('2026-11-09T12:00:00.000Z'));
+    await expect(repository.findCardById('BP01-079')).resolves.toMatchObject({
+      text: [
+        '使用后将该牌放置到我方信号球区最上方，抽1张牌。',
+        '【充能自】：从以下2项选择1项。',
+        '·选择我方战场最多1张角色，直到回合结束为止，其DP+1。',
+        '·选择我方战场最多1张角色，直到回合结束为止，其PP+2000。',
+      ],
+      version: 1,
+    });
+
     await repository.saveCard({ ...seeded!, name: '管理员修订名称', version: 2 });
     await seedBuiltInCards(repository, () => new Date('2026-11-10T00:00:00.000Z'));
     await expect(repository.findCardById('BP01-079')).resolves.toMatchObject({ name: '管理员修订名称', version: 2 });
+  });
+
+  it('lets an administrator list draft and published cards without exposing drafts publicly', async () => {
+    const repository = createMemoryRepository();
+    await seedBuiltInCards(repository, () => new Date('2026-11-09T00:00:00.000Z'));
+    await bootstrapAdmin(repository, { username: 'Anonce', password: 'BootstrapPass!21' });
+    const server = buildServer({ repository });
+    const login = await server.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'Anonce', password: 'BootstrapPass!21' } });
+    const cookie = cookieValue(login.headers['set-cookie']);
+
+    const adminCards = await server.inject({ method: 'GET', url: '/api/admin/cards', headers: { cookie } });
+    expect(adminCards.statusCode).toBe(200);
+    expect(adminCards.json().cards).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'ST01-005', status: 'draft', hasImage: false }),
+    ]));
+    expect((await server.inject({ method: 'GET', url: '/api/cards' })).json()).toEqual({ cards: [] });
+
+    const player = await server.inject({ method: 'POST', url: '/api/auth/register', payload: { username: 'player_one', password: 'TestPass!21' } });
+    const forbidden = await server.inject({ method: 'GET', url: '/api/admin/cards', headers: { cookie: cookieValue(player.headers['set-cookie']) } });
+    expect(forbidden.statusCode).toBe(403);
+    await server.close();
   });
 
   it('lets an administrator save a draft and publishes it only after executable validation', async () => {
@@ -55,6 +88,11 @@ describe('admin card API', () => {
     expect(created.statusCode).toBe(201);
     expect(created.json()).toMatchObject({ card: { id: 'TEST-001', status: 'draft', version: 1, hasImage: true } });
     expect((await server.inject({ method: 'GET', url: '/api/cards' })).json()).toEqual({ cards: [] });
+
+    const draftImage = await server.inject({ method: 'GET', url: '/api/admin/cards/TEST-001/image', headers: { cookie } });
+    expect(draftImage.statusCode).toBe(200);
+    expect(draftImage.headers['content-type']).toContain('image/png');
+    expect((await server.inject({ method: 'GET', url: '/api/admin/cards/TEST-001/image' })).statusCode).toBe(401);
 
     const published = await server.inject({ method: 'POST', url: '/api/admin/cards/TEST-001/publish', headers: { cookie } });
     expect(published.statusCode).toBe(200);

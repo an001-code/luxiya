@@ -16,7 +16,7 @@ export interface DeckSummary {
 export interface CardDraftInput {
   id: string; name: string; type: CardType; subtype?: CardSubtype; cost: number; attribute: Attribute;
   traits: string[]; pp?: number; dp?: number; signal?: SignalColor; text: string[]; effectIds: string[];
-  structuredEffects: StructuredEffect[]; imageDataUrl?: string;
+  structuredEffects: StructuredEffect[]; rarity?: string; artPath?: string; imageDataUrl?: string;
 }
 
 export class ApiError extends Error {
@@ -38,3 +38,4 @@ export const apiRequest = async <T>(path: string, init: RequestInit = {}): Promi
 };
 
 export const cardImageUrl = (id: string): string => `${API}/api/cards/${encodeURIComponent(id)}/image`;
+export const adminCardImageUrl = (id: string): string => `${API}/api/admin/cards/${encodeURIComponent(id)}/image`;

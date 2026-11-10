@@ -56,7 +56,17 @@ test('administrator manages cards and two authenticated players start a custom-d
   await login(admin, process.env.BOOTSTRAP_ADMIN_USERNAME ?? 'Anonce', adminPassword);
   await admin.getByRole('button', { name: '卡牌录入' }).click();
   await expect(admin.getByRole('heading', { name: '卡牌录入' })).toBeVisible();
+  await expect(admin.getByRole('heading', { name: '卡牌索引' })).toBeVisible();
   await admin.screenshot({ path: testInfo.outputPath('admin-card-editor-1920.png'), fullPage: true });
+  const form = admin.locator('.card-form');
+  expect(await form.evaluate((element) => element.scrollHeight > element.clientHeight)).toBeTruthy();
+  await form.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await expect(form.getByRole('button', { name: '保存草稿' })).toBeInViewport();
+  await admin.setViewportSize({ width: 1280, height: 720 });
+  await form.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await admin.screenshot({ path: testInfo.outputPath('admin-card-editor-1280.png'), fullPage: true });
+  await expect(form.getByRole('button', { name: '保存草稿' })).toBeInViewport();
+  await admin.setViewportSize({ width: 1920, height: 1080 });
   await seedPublishedCards(adminContext);
   await admin.reload();
   await admin.getByRole('button', { name: '卡牌库' }).click();

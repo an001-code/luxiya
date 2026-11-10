@@ -43,9 +43,15 @@ describe('card platform screens', () => {
     expect(html).toContain('设为启用牌组');
   });
 
-  it('renders the administrator image, rules, effect structure, draft, and publish controls', () => {
-    const html = renderToStaticMarkup(<AdminCardEditor onSave={() => undefined} onPublish={() => undefined} />);
+  it('renders an editable administrator card index and loads an existing draft', () => {
+    const draftCard = { ...card, status: 'draft' as const, hasImage: false };
+    const html = renderToStaticMarkup(<AdminCardEditor cards={[draftCard]} onSave={async () => undefined} onPublish={async () => undefined} />);
     expect(html).toContain('卡牌录入');
+    expect(html).toContain('卡牌索引');
+    expect(html).toContain('新建卡牌');
+    expect(html).toContain('TEST-001');
+    expect(html).toContain('测试角色');
+    expect(html).toContain('编辑草稿');
     expect(html).toContain('完整卡图');
     expect(html).toContain('原始规则文本');
     expect(html).toContain('结构化效果');

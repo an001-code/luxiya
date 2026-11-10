@@ -66,9 +66,19 @@ export class CardService {
     return (await this.repository.listCards({ status: 'published' })).map(toView);
   }
 
+  async listAll(): Promise<CardView[]> {
+    return (await this.repository.listCards()).map(toView);
+  }
+
   async findImage(id: string): Promise<{ mime: NonNullable<StoredCard['imageMime']>; bytes: Uint8Array } | null> {
     const card = await this.repository.findCardById(id);
     if (!card || card.status !== 'published' || !card.imageMime || !card.imageData) return null;
+    return { mime: card.imageMime, bytes: card.imageData };
+  }
+
+  async findAdminImage(id: string): Promise<{ mime: NonNullable<StoredCard['imageMime']>; bytes: Uint8Array } | null> {
+    const card = await this.repository.findCardById(id);
+    if (!card?.imageMime || !card.imageData) return null;
     return { mime: card.imageMime, bytes: card.imageData };
   }
 
