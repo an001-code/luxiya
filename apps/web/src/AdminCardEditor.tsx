@@ -1,5 +1,6 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
-import { adminCardImageUrl, type CardCatalogEntry, type CardDraftInput } from './api.js';
+import { ApiError, adminCardImageUrl, type CardCatalogEntry, type CardDraftInput } from './api.js';
+import { EffectBuilder } from './effects/EffectBuilder.js';
 
 const blankDraft = (): CardDraftInput => ({
   id: '', name: '', type: 'character', cost: 0, attribute: 'physical', traits: [], pp: 0, dp: 0,
@@ -20,16 +21,21 @@ const draftFromCard = (card: CardCatalogEntry): CardDraftInput => ({
 
 interface AdminCardEditorProps {
   cards: CardCatalogEntry[];
-  onSave: (input: CardDraftInput, existingId: string | null) => Promise<void>;
+  onSave: (input: CardDraftInput, existingId: string | null) => Promise<CardCatalogEntry>;
   onPublish: (id: string) => Promise<void>;
+  onSaveAndPublish: (input: CardDraftInput, existingId: string | null) => Promise<void>;
 }
 
-export function AdminCardEditor({ cards, onSave, onPublish }: AdminCardEditorProps) {
+export function AdminCardEditor({ cards, onSave, onPublish, onSaveAndPublish }: AdminCardEditorProps) {
   const firstCard = cards[0];
   const [selectedId, setSelectedId] = useState<string | null>(firstCard?.id ?? null);
   const [draft, setDraft] = useState<CardDraftInput>(() => firstCard ? draftFromCard(firstCard) : blankDraft());
   const [imagePreview, setImagePreview] = useState(() => firstCard?.hasImage ? adminCardImageUrl(firstCard.id) : '');
   const [query, setQuery] = useState('');
+  const [busyAction, setBusyAction] = useState<'save' | 'publish' | 'save-publish' | null>(null);
+  const [validationDetails, setValidationDetails] = useState<string[]>([]);
+  const [formError, setFormError] = useState('');
+  const [focusedEffectId, setFocusedEffectId] = useState<string | null>(null);
   const selectedCard = cards.find((card) => card.id === selectedId);
   const filteredCards = useMemo(() => {
     const key = query.trim().toLocaleLowerCase('zh-CN');
@@ -40,8 +46,11 @@ export function AdminCardEditor({ cards, onSave, onPublish }: AdminCardEditorPro
     setSelectedId(card.id);
     setDraft(draftFromCard(card));
     setImagePreview(card.hasImage ? adminCardImageUrl(card.id) : '');
+    setValidationDetails([]);
+    setFormError('');
+    setFocusedEffectId(null);
   };
-  const newCard = () => { setSelectedId(null); setDraft(blankDraft()); setImagePreview(''); };
+  const newCard = () => { setSelectedId(null); setDraft(blankDraft()); setImagePreview(''); setValidationDetails([]); setFormError(''); setFocusedEffectId(null); };
   const image = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -54,6 +63,32 @@ export function AdminCardEditor({ cards, onSave, onPublish }: AdminCardEditorPro
     reader.readAsDataURL(file);
   };
   const lines = (value: string) => value.split('\n').map((line) => line.trim()).filter(Boolean);
+  const reportFailure = (error: unknown) => {
+    const details = error instanceof ApiError ? error.details : [];
+    setValidationDetails(details);
+    setFormError(error instanceof Error ? error.message : '操作失败');
+    const effectDetail = details.find((detail) => detail.startsWith('效果 '));
+    setFocusedEffectId(effectDetail?.match(/^效果 ([^：]+)/)?.[1] ?? null);
+  };
+  const save = async () => {
+    setBusyAction('save'); setValidationDetails([]); setFormError('');
+    try { const saved = await onSave(draft, selectedId); setSelectedId(saved.id); }
+    catch (error) { reportFailure(error); }
+    finally { setBusyAction(null); }
+  };
+  const publish = async () => {
+    if (!selectedId) return;
+    setBusyAction('publish'); setValidationDetails([]); setFormError('');
+    try { await onPublish(selectedId); }
+    catch (error) { reportFailure(error); }
+    finally { setBusyAction(null); }
+  };
+  const saveAndPublish = async () => {
+    setBusyAction('save-publish'); setValidationDetails([]); setFormError('');
+    try { await onSaveAndPublish(draft, selectedId); setSelectedId(draft.id); }
+    catch (error) { reportFailure(error); }
+    finally { setBusyAction(null); }
+  };
 
   return <section className="admin-editor">
     <header><div><small>ADMIN // CARD REGISTRY</small><h1>卡牌录入</h1></div><div className="draft-state">{selectedId ? '编辑草稿' : '新建草稿'}</div></header>
@@ -67,7 +102,7 @@ export function AdminCardEditor({ cards, onSave, onPublish }: AdminCardEditorPro
         </button>)}</div>
       </aside>
 
-      <form className="card-form" onSubmit={(event) => { event.preventDefault(); void onSave(draft, selectedId).then(() => setSelectedId(draft.id)); }}>
+      <form className="card-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
         <div className="form-grid">
           <label>卡牌编号<input value={draft.id} disabled={selectedId !== null} onChange={(event) => setDraft({ ...draft, id: event.target.value.toUpperCase() })} required /></label>
           <label>卡牌名称<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} required /></label>
@@ -84,10 +119,9 @@ export function AdminCardEditor({ cards, onSave, onPublish }: AdminCardEditorPro
         <label className="image-drop">完整卡图<input type="file" accept="image/png,image/jpeg,image/webp" onChange={image} /><span>{selectedCard?.hasImage ? '已保存卡图；重新选择文件将覆盖' : 'PNG / JPEG / WebP，最大 8 MiB'}</span></label>
         <label>原始规则文本<textarea rows={8} value={draft.text.join('\n')} onChange={(event) => setDraft({ ...draft, text: lines(event.target.value) })} /></label>
         <label>效果处理器 ID<textarea rows={4} placeholder="每行一个稳定 effectId" value={draft.effectIds.join('\n')} onChange={(event) => setDraft({ ...draft, effectIds: lines(event.target.value) })} /></label>
-        <section className="effect-structure"><h2>结构化效果</h2><p>已从卡牌资料建立能力类型与处理器映射；尚未实现的复杂效果会继续保持草稿，避免错误裁定。</p><button type="button" onClick={() => setDraft({ ...draft, structuredEffects: [...draft.structuredEffects, { id: `effect-${draft.structuredEffects.length + 1}`, ability: 'automatic', conditions: [], costs: [], targets: [], actions: [{ kind: 'custom', customHandlerId: 'unconfigured' }], duration: { kind: 'instant' } }] })}>＋ 添加效果结构</button><strong>{draft.structuredEffects.length} 项</strong>
-          <div className="effect-list">{draft.structuredEffects.map((effect, index) => <div key={`${effect.id}-${index}`}><code>{effect.id}</code><span>{effect.ability}</span><small>{effect.actions.find((action) => action.kind === 'custom')?.customHandlerId ?? '通用效果'}</small><button type="button" onClick={() => setDraft({ ...draft, structuredEffects: draft.structuredEffects.filter((_, itemIndex) => itemIndex !== index) })}>移除</button></div>)}</div>
-        </section>
-        <footer><button type="submit">保存草稿</button><button type="button" className="primary-action" disabled={!draft.id || !selectedId} onClick={() => { if (selectedId) void onPublish(selectedId); }}>发布卡牌</button></footer>
+        <EffectBuilder effects={draft.structuredEffects} onChange={(structuredEffects) => setDraft({ ...draft, structuredEffects })} validationDetails={validationDetails} focusedEffectId={focusedEffectId} />
+        {formError && <div className="admin-form-error"><b>{formError}</b>{validationDetails.filter((detail) => !detail.startsWith('效果 ')).map((detail) => <span key={detail}>{detail}</span>)}</div>}
+        <footer><button type="submit" disabled={busyAction !== null}>{busyAction === 'save' ? '正在保存…' : '保存草稿'}</button><button type="button" disabled={!draft.id || !selectedId || busyAction !== null} onClick={() => void publish()}>{busyAction === 'publish' ? '正在发布…' : '发布卡牌'}</button><button type="button" className="primary-action" disabled={!draft.id || busyAction !== null} onClick={() => void saveAndPublish()}>{busyAction === 'save-publish' ? '正在保存并发布…' : '保存并发布'}</button></footer>
       </form>
 
       <aside className="card-preview"><div>{imagePreview ? <img src={imagePreview} alt="卡图预览" /> : <span>完整卡图预览</span>}</div><code>{draft.id || 'CARD-ID'}</code><h2>{draft.name || '未命名卡牌'}</h2><p>费用 {draft.cost} · {draft.attribute}{draft.rarity ? ` · ${draft.rarity}` : ''}</p>{draft.text.map((line, index) => <p key={`${index}-${line}`}>{line}</p>)}</aside>

@@ -1,10 +1,17 @@
+// @vitest-environment jsdom
+
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AuthScreen } from './AuthScreen.js';
 import { CardLibrary } from './CardLibrary.js';
 import { DeckEditor } from './DeckEditor.js';
 import { AdminCardEditor } from './AdminCardEditor.js';
+import { ApiError } from './api.js';
+
+afterEach(cleanup);
 
 const card = {
   id: 'TEST-001', name: '测试角色', type: 'character' as const, cost: 3, attribute: 'physical' as const,
@@ -45,7 +52,7 @@ describe('card platform screens', () => {
 
   it('renders an editable administrator card index and loads an existing draft', () => {
     const draftCard = { ...card, status: 'draft' as const, hasImage: false };
-    const html = renderToStaticMarkup(<AdminCardEditor cards={[draftCard]} onSave={async () => undefined} onPublish={async () => undefined} />);
+    const html = renderToStaticMarkup(<AdminCardEditor cards={[draftCard]} onSave={async () => draftCard} onPublish={async () => undefined} onSaveAndPublish={async () => undefined} />);
     expect(html).toContain('卡牌录入');
     expect(html).toContain('卡牌索引');
     expect(html).toContain('新建卡牌');
@@ -57,5 +64,32 @@ describe('card platform screens', () => {
     expect(html).toContain('结构化效果');
     expect(html).toContain('保存草稿');
     expect(html).toContain('发布卡牌');
+    expect(html).toContain('保存并发布');
+    expect(html).toContain('效果模板');
+  });
+
+  it('keeps and highlights the failing ability when save-and-publish is rejected', async () => {
+    const user = userEvent.setup();
+    const draftCard = {
+      ...card,
+      status: 'draft' as const,
+      structuredEffects: [{
+        id: 'effect-2', ability: 'enter' as const, conditions: [], costs: [], targets: [],
+        actions: [{ kind: 'draw' as const, player: 'self' as const, amount: { kind: 'fixed' as const, value: 1 } }],
+        duration: { kind: 'instant' as const },
+      }],
+    };
+    const publish = vi.fn(async () => undefined);
+    const saveAndPublish = vi.fn(async () => {
+      throw new ApiError('CARD_NOT_PUBLISHABLE', 422, ['效果 effect-2：未注册效果处理器 future-handler']);
+    });
+    render(<AdminCardEditor cards={[draftCard]} onSave={async () => draftCard} onPublish={publish} onSaveAndPublish={saveAndPublish} />);
+
+    await user.click(screen.getByRole('button', { name: '保存并发布' }));
+
+    const detail = await screen.findByText('效果 effect-2：未注册效果处理器 future-handler');
+    expect(detail.closest('.effect-card')?.className).toContain('focused');
+    expect(saveAndPublish).toHaveBeenCalledTimes(1);
+    expect(publish).not.toHaveBeenCalled();
   });
 });

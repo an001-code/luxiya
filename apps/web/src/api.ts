@@ -39,3 +39,22 @@ export const apiRequest = async <T>(path: string, init: RequestInit = {}): Promi
 
 export const cardImageUrl = (id: string): string => `${API}/api/cards/${encodeURIComponent(id)}/image`;
 export const adminCardImageUrl = (id: string): string => `${API}/api/admin/cards/${encodeURIComponent(id)}/image`;
+
+export const saveAdminCard = async (input: CardDraftInput, existingId: string | null): Promise<CardCatalogEntry> => {
+  const path = existingId ? `/api/admin/cards/${encodeURIComponent(existingId)}` : '/api/admin/cards';
+  const { card } = await apiRequest<{ card: CardCatalogEntry }>(path, {
+    method: existingId ? 'PUT' : 'POST',
+    body: JSON.stringify(input),
+  });
+  return card;
+};
+
+export const publishAdminCard = async (id: string): Promise<CardCatalogEntry> => {
+  const { card } = await apiRequest<{ card: CardCatalogEntry }>(`/api/admin/cards/${encodeURIComponent(id)}/publish`, { method: 'POST' });
+  return card;
+};
+
+export const saveAndPublishAdminCard = async (input: CardDraftInput, existingId: string | null): Promise<CardCatalogEntry> => {
+  const saved = await saveAdminCard(input, existingId);
+  return publishAdminCard(saved.id);
+};
