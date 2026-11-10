@@ -11,6 +11,7 @@ import type {
   StructuredEffect,
 } from '@pgr/protocol';
 import { advanceEffectFrameTargets, createEffectFrame } from './state.js';
+import { executeCurrentCardCustomAction } from './current-card-handlers.js';
 import {
   cardsInZone,
   effectPlayerId,
@@ -276,10 +277,19 @@ const executeAction = (state: GameState, frame: EffectFrame, action: EffectActio
     for (const card of targetCards(state, frame, action.targetId)) card.frozen = true;
   } else if (action.kind === 'modify-corruption') {
     const player = state.players[effectPlayerId(state, frame.controllerId, action.player)]!;
+    const before = player.corruption;
     const value = effectValue(state, frame, action.value);
     if (action.operation === 'set') player.corruption = value;
     else if (action.operation === 'add') player.corruption += value;
     else player.corruption = Math.max(0, player.corruption - value);
+    if (player.corruption !== before) state.events.push({
+      id: state.events.length + 1,
+      type: 'corruption-changed',
+      playerId: player.id,
+      message: `${player.id} 的侵蚀变为 ${player.corruption}`,
+      public: true,
+      createdAtTurn: state.turn,
+    });
   } else if (action.kind === 'signal-as') {
     addModifier(state, frame, action, action.color);
   } else if (action.kind === 'choose') {
@@ -303,6 +313,8 @@ const executeAction = (state: GameState, frame: EffectFrame, action: EffectActio
       for (const nested of option.actions) executeAction(state, frame, nested, rng);
     }
     delete frame.selectedOptionId;
+  } else if (action.kind === 'custom') {
+    if (executeCurrentCardCustomAction(state, frame, action.customHandlerId) === 'waiting') return false;
   }
   return true;
 };

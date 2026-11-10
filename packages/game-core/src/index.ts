@@ -16,6 +16,11 @@ import type {
 } from '@pgr/protocol';
 import { resolveEffectDecision } from './effects/state.js';
 import { continueEffectResolution, enqueueEffects } from './effects/interpreter.js';
+import {
+  blueDiscountSignals,
+  conditionalFloatingDp,
+  conditionalTeamPpBonus,
+} from './effects/current-card-handlers.js';
 
 export { registeredCustomEffectHandlers, validateExecutableEffect } from './effects/capabilities.js';
 export { resolveEffectDecision, startEffectResolution } from './effects/state.js';
@@ -165,9 +170,9 @@ const opponentId = (state: GameState, playerId: string): string =>
   state.playerOrder.find((id) => id !== playerId) ?? state.playerOrder[0];
 
 const isHaste = (state: GameState, card: CardInstance): boolean => {
-  const effects = definitionFor(state, card.cardId).effectIds;
-  if (effects.includes('haste')) return true;
-  return effects.includes('weapon_haste') && Boolean(card.attached?.some((item) => definitionFor(state, item.cardId).traits.includes('封刃太刀')));
+  const definition = definitionFor(state, card.cardId);
+  if (definition.structuredEffects?.some((effect) => effect.sourceEffectId === 'haste')) return true;
+  return definition.effectIds.includes('weapon_haste') && Boolean(card.attached?.some((item) => definitionFor(state, item.cardId).traits.includes('封刃太刀')));
 };
 
 const effectiveStat = (state: GameState, card: CardInstance, stat: 'pp' | 'dp', base: number): number =>
@@ -175,13 +180,18 @@ const effectiveStat = (state: GameState, card: CardInstance, stat: 'pp' | 'dp', 
     .filter((modifier) => modifier.kind === 'stat' && modifier.stat === stat && modifier.targetInstanceIds.includes(card.instanceId))
     .reduce((value, modifier) => modifier.operation === 'set' ? Number(modifier.value) : value + Number(modifier.value), base);
 
+const controllingPlayer = (state: GameState, card: CardInstance): PlayerState | undefined =>
+  state.playerOrder.map((id) => state.players[id]!).find((player) => player.field.some((fieldCard) => fieldCard?.instanceId === card.instanceId));
+
 const effectivePp = (state: GameState, card: CardInstance): number => effectiveStat(state, card, 'pp',
   (definitionFor(state, card.cardId).pp ?? 0)
   + (card.attached ?? []).reduce((sum, item) => sum + (definitionFor(state, item.cardId).pp ?? 0), 0)
-  + (card.temporaryPp ?? 0));
+  + (card.temporaryPp ?? 0)
+  + (controllingPlayer(state, card) ? conditionalTeamPpBonus(state, controllingPlayer(state, card)!, card.cardId) : 0));
 
 const effectiveDp = (state: GameState, card: CardInstance): number => effectiveStat(state, card, 'dp',
-  (definitionFor(state, card.cardId).dp ?? 0) + (card.temporaryDp ?? 0));
+  conditionalFloatingDp(state, controllingPlayer(state, card) ?? state.players[state.activePlayerId]!, card.cardId, definitionFor(state, card.cardId).dp ?? 0)
+  + (card.temporaryDp ?? 0));
 
 export const getLegalActions = (state: GameState, playerId: string): LegalAction[] => {
   if (state.status !== 'playing') return [];
@@ -226,7 +236,8 @@ export const getLegalActions = (state: GameState, playerId: string): LegalAction
   const actions: LegalAction[] = [{ type: 'END_PHASE' }];
   for (const card of player.hand) {
     const definition = definitionFor(state, card.cardId);
-    if (definition.subtype === 'instant' || !canPay(state, player, card.cardId)) continue;
+    const minimumCost = discountedCost(state, player, card.cardId, supportsBlueDiscount(state, card.cardId) ? blueDiscountSignals(state, player) : []) ?? definition.cost;
+    if (definition.subtype === 'instant' || !canPay(state, player, card.cardId, minimumCost)) continue;
     const hasEmptySlot = player.field.some((item) => item === null);
     const hasEquipmentTarget = definition.subtype === 'equipment' && player.field.some((item) => item && definitionFor(state, item.cardId).type === 'character' && !item.attached?.length);
     if ((definition.type === 'character' || definition.subtype === 'support') && !hasEmptySlot) continue;
@@ -315,22 +326,34 @@ const reject = (state: GameState, code: NonNullable<GameResult['rejection']>['co
   rejection: { code, message },
 });
 
-const canPay = (state: GameState, player: PlayerState, cardId: string): boolean => {
+const supportsBlueDiscount = (state: GameState, cardId: string): boolean =>
+  definitionFor(state, cardId).structuredEffects?.some((effect) => effect.sourceEffectId === 'blue_signal_discount') ?? false;
+
+const discountedCost = (state: GameState, player: PlayerState, cardId: string, discountSignalIds: string[]): number | null => {
+  const definition = definitionFor(state, cardId);
+  if (!supportsBlueDiscount(state, cardId)) return discountSignalIds.length === 0 ? definition.cost : null;
+  if (new Set(discountSignalIds).size !== discountSignalIds.length) return null;
+  const legalIds = new Set(blueDiscountSignals(state, player));
+  if (discountSignalIds.some((id) => !legalIds.has(id))) return null;
+  return Math.max(0, definition.cost - discountSignalIds.length * 2);
+};
+
+const canPay = (state: GameState, player: PlayerState, cardId: string, cost = definitionFor(state, cardId).cost): boolean => {
   const definition = definitionFor(state, cardId);
   const available = player.energy.filter((card) => !card.rested);
-  if (available.length < definition.cost) return false;
-  if (definition.cost === 0 || definition.attribute === 'none') return true;
+  if (available.length < cost) return false;
+  if (cost === 0 || definition.attribute === 'none') return true;
   return available.some((card) => card.face === 'up' && definitionFor(state, card.cardId).attribute === definition.attribute);
 };
 
-const selectedPayment = (state: GameState, player: PlayerState, cardId: string, paymentIds: string[] | undefined): CardInstance[] | null => {
+const selectedPayment = (state: GameState, player: PlayerState, cardId: string, paymentIds: string[] | undefined, cost = definitionFor(state, cardId).cost): CardInstance[] | null => {
   const definition = definitionFor(state, cardId);
   const ids = paymentIds ?? [];
-  if (ids.length !== definition.cost || new Set(ids).size !== ids.length) return null;
+  if (ids.length !== cost || new Set(ids).size !== ids.length) return null;
   const selected = ids.map((id) => player.energy.find((card) => card.instanceId === id && !card.rested));
   if (selected.some((card) => !card)) return null;
   const cards = selected as CardInstance[];
-  if (definition.cost > 0 && definition.attribute !== 'none'
+  if (cost > 0 && definition.attribute !== 'none'
     && !cards.some((card) => card.face === 'up' && definitionFor(state, card.cardId).attribute === definition.attribute)) return null;
   return cards;
 };
@@ -373,7 +396,7 @@ const attackCharge = (state: GameState, player: PlayerState, attacker: CardInsta
     card.face = 'up';
     const definition = definitionFor(state, card.cardId);
     if (definition.signal) {
-      player.signals.push(card);
+      player.signals.unshift(card);
       const chargeEffects = definition.structuredEffects?.filter((effect) => effect.ability === 'charge') ?? [];
       enqueueEffects(state, { controllerId: player.id, sourceInstanceId: attacker.instanceId }, chargeEffects);
       continueEffectResolution(state, rng);
@@ -516,14 +539,20 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
       || next.priorityWindow?.priorityPlayerId === command.playerId
     ));
     if (!inResponse && (next.phase !== 'main' || next.activePlayerId !== command.playerId || definition.subtype === 'instant')) return reject(state, 'NOT_YOUR_ACTION', '当前不能使用该卡牌');
-    if (!canPay(next, player, card.cardId)) return reject(state, 'ILLEGAL_ACTION', '费用或属性条件不满足');
-    const payment = selectedPayment(next, player, card.cardId, command.paymentIds);
+    const playCost = discountedCost(next, player, card.cardId, command.discountSignalIds ?? []);
+    if (playCost === null) return reject(state, 'ILLEGAL_ACTION', '费用折扣所选信号球不合法');
+    if (!canPay(next, player, card.cardId, playCost)) return reject(state, 'ILLEGAL_ACTION', '费用或属性条件不满足');
+    const payment = selectedPayment(next, player, card.cardId, command.paymentIds, playCost);
     if (!payment) return reject(state, 'ILLEGAL_ACTION', '请选择符合费用和属性要求的费用牌');
+    for (const signalId of command.discountSignalIds ?? []) {
+      const signalIndex = player.signals.findIndex((signal) => signal.instanceId === signalId);
+      player.graveyard.push(...player.signals.splice(signalIndex, 1));
+    }
     pay(player, payment);
     player.hand.splice(index, 1);
     card.face = 'up';
     if (definition.signal) {
-      player.signals.push(card);
+      player.signals.unshift(card);
     } else if (definition.type === 'character' || definition.subtype === 'support') {
       const slot = command.fieldSlot ?? player.field.findIndex((item) => item === null);
       if (slot < 0 || slot >= 5 || player.field[slot]) return reject(state, 'ILLEGAL_ACTION', '没有合法战场卡位');
@@ -537,19 +566,6 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
       if (slot < 0 || slot >= 5 || player.field[slot]) return reject(state, 'ILLEGAL_ACTION', '没有合法装备位置');
       player.field[slot] = { ...card, enteredTurn: next.turn };
     } else player.graveyard.push(card);
-    if (definition.effectIds.includes('enter_swap_energy')) {
-      const energyIndex = player.energy.findIndex((item) => item.face === 'up');
-      if (energyIndex >= 0 && player.deck.length > 0) {
-        const [returned] = player.energy.splice(energyIndex, 1);
-        player.hand.push({ ...returned!, face: 'up', rested: false });
-        const charged = player.deck.shift()!;
-        player.energy.push({ ...charged, face: 'up', rested: true });
-      }
-    }
-    if (definition.effectIds.includes('enter_recover_blue')) {
-      const graveIndex = player.graveyard.findIndex((item) => definitionFor(next, item.cardId).signal === 'blue');
-      if (graveIndex >= 0) player.signals.push(...player.graveyard.splice(graveIndex, 1));
-    }
     const triggeredEffects = definition.structuredEffects?.filter((effect) =>
       (definition.signal && effect.trigger?.event === 'card-used' && effect.ability === 'automatic')
       || (definition.subtype === 'instant' && effect.ability === 'instant')
@@ -587,6 +603,10 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
       stage: 'response',
     };
     addEvent(next, 'attack-declared', player.id, `${player.id} 宣言攻击`);
+    const attackEffects = definitionFor(next, attacker.cardId).structuredEffects?.filter((effect) =>
+      effect.ability === 'automatic' && effect.trigger?.event === 'attack-declared') ?? [];
+    enqueueEffects(next, { controllerId: player.id, sourceInstanceId: attacker.instanceId }, attackEffects);
+    continueEffectResolution(next, rng);
   } else if (command.type === 'BLOCK' && next.pendingAttack?.priorityPlayerId === command.playerId && command.playerId !== next.activePlayerId) {
     const blocker = player.field[command.blockerSlot];
     if (!blocker || blocker.rested) return reject(state, 'ILLEGAL_ACTION', '该角色不能阻挡');

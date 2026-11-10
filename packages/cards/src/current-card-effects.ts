@@ -75,6 +75,47 @@ export const currentCardEffects: Record<string, StructuredEffect[]> = {
       { kind: 'modify-stat', targetId: 'boosted', stat: 'pp', operation: 'add', value: { kind: 'selected-count', targetId: 'extra-discard', multiplier: 1000 }, duration: turn },
     ],
   }],
+  'PR-006': [{
+    id: 'swap-faceup-energy', sourceEffectId: 'enter_swap_energy', ability: 'enter', trigger: event('card-entered'),
+    conditions: [],
+    costs: [{ kind: 'discard', player: 'self', amount: fixed(1) }],
+    targets: [{ id: 'returned-energy', kind: 'cards', player: 'self', zone: 'energy', min: 1, max: 1, filter: { face: 'up' } }],
+    actions: [
+      { kind: 'move-card', targetId: 'returned-energy', to: 'hand', face: 'up' },
+      { kind: 'custom', customHandlerId: 'charge_top_rested' },
+    ],
+  }],
+  'PR-004': [
+    {
+      id: 'gray-raven-team-bonus', sourceEffectId: 'gray_raven_team_bonus', ability: 'permanent',
+      conditions: [], costs: [], targets: [], actions: [{ kind: 'custom', customHandlerId: 'gray_raven_team_bonus' }], duration: permanent,
+    },
+    {
+      id: 'reorder-signal-zone', sourceEffectId: 'enter_reorder_signals', ability: 'enter', trigger: event('card-entered'),
+      conditions: [], costs: [], targets: [], actions: [{ kind: 'custom', customHandlerId: 'reorder_signals' }],
+    },
+  ],
+  'BP03-077': [{
+    id: 'attack-signal-as-blue', sourceEffectId: 'attack_blue_signal', ability: 'automatic', trigger: event('attack-declared'),
+    conditions: [{ kind: 'controller-has-card', player: 'self', zone: 'field', filter: { traits: ['阿尔法'], types: ['character'] }, min: 2 }],
+    costs: [],
+    targets: [{ id: 'blue-signal', kind: 'cards', player: 'self', zone: 'signals', min: 1, max: 1 }],
+    actions: [{ kind: 'signal-as', targetId: 'blue-signal', color: 'blue', count: 1, duration: turn }],
+  }],
+  'BP03-076': [{
+    id: 'recover-blue-signal', sourceEffectId: 'enter_recover_blue', ability: 'enter', trigger: event('card-entered'),
+    conditions: [], costs: [],
+    targets: [{ id: 'recovered', kind: 'cards', player: 'self', zone: 'graveyard', min: 1, max: 1, filter: { signals: ['blue'] } }],
+    actions: [{ kind: 'move-card', targetId: 'recovered', to: 'signals', position: 'top', face: 'up' }],
+  }],
+  'BP03-075': [
+    { id: 'crimson-abyss-haste', sourceEffectId: 'haste', ability: 'permanent', conditions: [], costs: [], targets: [], actions: [{ kind: 'custom', customHandlerId: 'haste' }], duration: permanent },
+    { id: 'blue-signal-cost-discount', sourceEffectId: 'blue_signal_discount', ability: 'permanent', conditions: [], costs: [], targets: [], actions: [{ kind: 'custom', customHandlerId: 'blue_signal_discount' }], duration: permanent },
+  ],
+  'BP03-009': [{
+    id: 'floating-base-dp', sourceEffectId: 'floating_dp', ability: 'permanent',
+    conditions: [], costs: [], targets: [], actions: [{ kind: 'custom', customHandlerId: 'floating_dp' }], duration: permanent,
+  }],
   'BP01-011': [equipmentPp, {
     id: 'corruption-changed-draw', sourceEffectId: 'corruption_draw', ability: 'enter', trigger: event('card-entered'),
     conditions: [{ kind: 'turn-event', event: 'corruption-changed', player: 'self' }],

@@ -94,7 +94,7 @@ export interface PendingDecision {
   frameId: string;
   playerId: PlayerId;
   kind: 'select-cards' | 'choose-option' | 'confirm' | 'order-cards';
-  purpose: 'target' | 'cost' | 'choice' | 'optional';
+  purpose: 'target' | 'cost' | 'choice' | 'optional' | 'action';
   prompt: string;
   min: number;
   max: number;
@@ -179,7 +179,7 @@ export type GameCommand = CommandBase & (
   | { type: 'MULLIGAN'; instanceIds: string[] }
   | { type: 'ADVANCE_PHASE' }
   | { type: 'SET_ENERGY'; instanceId?: string }
-  | { type: 'PLAY_CARD'; instanceId: string; fieldSlot?: number; targetSlot?: number; paymentIds?: string[] }
+  | { type: 'PLAY_CARD'; instanceId: string; fieldSlot?: number; targetSlot?: number; paymentIds?: string[]; discountSignalIds?: string[] }
   | { type: 'ELIMINATE_SIGNALS'; startIndex: number }
   | { type: 'ACTIVATE_ABILITY'; sourceInstanceId: string; abilityIndex: number; targetInstanceIds?: string[] }
   | { type: 'DECLARE_ATTACK'; attackerSlot: number; target: 'player' | 'character'; targetSlot?: number }

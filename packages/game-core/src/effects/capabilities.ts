@@ -13,6 +13,11 @@ export const registeredCustomEffectHandlers = new Set([
   'corruption_draw',
   'signal_draw',
   'equipment_pp',
+  'charge_top_rested',
+  'gray_raven_team_bonus',
+  'reorder_signals',
+  'blue_signal_discount',
+  'floating_dp',
 ]);
 
 const customHandlerErrors = (effectId: string, nodes: Array<EffectAction | EffectCondition | EffectCost>): string[] => {
