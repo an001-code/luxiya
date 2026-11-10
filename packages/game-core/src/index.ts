@@ -15,6 +15,8 @@ import type {
   PublicCardView,
 } from '@pgr/protocol';
 
+export { registeredCustomEffectHandlers, validateExecutableEffect } from './effects/capabilities.js';
+
 export type Rng = () => number;
 
 export const sequenceRng = (values: number[]): Rng => {

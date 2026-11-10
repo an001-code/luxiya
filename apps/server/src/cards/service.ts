@@ -1,6 +1,6 @@
 import type { CardDefinition } from '@pgr/protocol';
+import { validateExecutableEffect } from '@pgr/game-core';
 import type { AppRepository, StoredCard } from '../persistence/types.js';
-import { hasEffectHandler } from './effect-handlers.js';
 import { cardInputSchema, type CardInput } from './schema.js';
 
 const maxImageBytes = 8 * 1024 * 1024;
@@ -119,13 +119,12 @@ export class CardService {
     const errors: string[] = [];
     if (!card.imageData || !card.imageMime) errors.push('缺少完整卡图');
     if (card.text.length === 0) errors.push('缺少规则文本');
-    const handlers = new Set((card.structuredEffects ?? []).map((effect) => effect.handlerId).filter((value): value is string => Boolean(value)));
+    const effects = card.structuredEffects ?? [];
+    const configuredEffectIds = new Set(effects.map((effect) => effect.sourceEffectId).filter((value): value is string => Boolean(value)));
     for (const effectId of card.effectIds) {
-      if (!handlers.has(effectId)) errors.push(`效果缺少结构化配置：${effectId}`);
+      if (!configuredEffectIds.has(effectId)) errors.push(`效果缺少结构化配置：${effectId}`);
     }
-    for (const handler of handlers) {
-      if (!hasEffectHandler(handler)) errors.push(`未注册效果处理器：${handler}`);
-    }
+    for (const effect of effects) errors.push(...validateExecutableEffect(effect));
     return errors;
   }
 }

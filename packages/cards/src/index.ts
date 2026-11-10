@@ -29,9 +29,14 @@ const abilityByEffectId: Record<string, NonNullable<CardDefinition['structuredEf
 
 const structuresFor = (effectIds: string[]): NonNullable<CardDefinition['structuredEffects']> => effectIds.map((handlerId) => ({
   id: handlerId.replaceAll('_', '-'),
+  sourceEffectId: handlerId,
   ability: abilityByEffectId[handlerId] ?? 'automatic',
-  handlerId,
-  actions: [{ type: 'custom', value: handlerId }],
+  ...((abilityByEffectId[handlerId] ?? 'automatic') === 'enter' ? { trigger: { kind: 'event' as const, event: 'card-entered' as const } } : {}),
+  conditions: [],
+  costs: [],
+  targets: [],
+  actions: [{ kind: 'custom', customHandlerId: handlerId }],
+  duration: { kind: 'instant' },
 }));
 
 const character = (

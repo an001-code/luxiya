@@ -3,6 +3,7 @@ import { bootstrapAdmin } from '../bootstrap-admin.js';
 import { createMemoryRepository } from '../persistence/memory-repository.js';
 import { buildServer } from '../server.js';
 import { CardService } from './service.js';
+import { cardInputSchema } from './schema.js';
 import { seedBuiltInCards } from '../seed-cards.js';
 
 const pngDataUrl = `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString('base64')}`;
@@ -19,9 +20,14 @@ const cardInput = {
   effectIds: ['enter_draw_discard'],
   structuredEffects: [{
     id: 'enter-draw-discard',
+    sourceEffectId: 'enter_draw_discard',
     ability: 'enter' as const,
-    handlerId: 'enter_draw_discard',
-    actions: [{ type: 'draw' as const, amount: 1 }, { type: 'discard' as const, amount: 1 }],
+    trigger: { kind: 'event' as const, event: 'card-entered' as const },
+    conditions: [],
+    costs: [],
+    targets: [],
+    actions: [{ kind: 'custom' as const, customHandlerId: 'enter_draw_discard' }],
+    duration: { kind: 'instant' as const },
   }],
   imageDataUrl: pngDataUrl,
 };
@@ -123,14 +129,52 @@ describe('admin card API', () => {
       ...cardInput,
       id: 'TEST-UNSUPPORTED',
       effectIds: ['future_complex_effect'],
-      structuredEffects: [{ ...cardInput.structuredEffects[0]!, handlerId: 'future_complex_effect' }],
+      structuredEffects: [{
+        ...cardInput.structuredEffects[0]!,
+        sourceEffectId: 'future_complex_effect',
+        actions: [{ kind: 'custom' as const, customHandlerId: 'future_complex_effect' }],
+      }],
     });
 
     await expect(service.publish('TEST-UNSUPPORTED')).rejects.toMatchObject({
       message: 'CARD_NOT_PUBLISHABLE',
-      details: ['未注册效果处理器：future_complex_effect'],
+      details: ['效果 enter-draw-discard：未注册效果处理器 future_complex_effect'],
     });
     await expect(repository.findCardById('TEST-UNSUPPORTED')).resolves.toMatchObject({ status: 'draft' });
+  });
+
+  it('publishes a typed common effect without requiring a custom handler', async () => {
+    const service = new CardService(createMemoryRepository());
+    await service.createDraft({
+      ...cardInput,
+      id: 'TEST-TYPED-DRAW',
+      effectIds: [],
+      structuredEffects: [{
+        id: 'enter-draw-one',
+        ability: 'enter',
+        trigger: { kind: 'event', event: 'card-entered' },
+        conditions: [],
+        costs: [],
+        targets: [{ id: 'controller', kind: 'player', player: 'self', min: 1, max: 1 }],
+        actions: [{ kind: 'draw', player: 'self', amount: { kind: 'fixed', value: 1 } }],
+        duration: { kind: 'instant' },
+      }],
+    });
+
+    await expect(service.publish('TEST-TYPED-DRAW')).resolves.toMatchObject({ status: 'published' });
+  });
+
+  it('rejects an unknown structured action before it reaches persistence', () => {
+    const parsed = cardInputSchema.safeParse({
+      ...cardInput,
+      id: 'TEST-UNKNOWN-ACTION',
+      structuredEffects: [{
+        id: 'bad-action', ability: 'enter', conditions: [], costs: [], targets: [],
+        actions: [{ kind: 'teleport_everything' }],
+      }],
+    });
+
+    expect(parsed.success).toBe(false);
   });
 
   it('rejects oversized images and image data whose bytes do not match the declared type', async () => {
