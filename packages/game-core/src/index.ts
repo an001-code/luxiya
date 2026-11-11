@@ -209,6 +209,7 @@ export const getLegalActions = (state: GameState, playerId: string): LegalAction
   if (state.pendingProcessing) return [];
   const player = state.players[playerId];
   if (!player) return [];
+  if (state.pendingDraw) return state.pendingDraw.playerId === playerId ? [{ type: 'CONFIRM_DRAW' }] : [];
   if (state.pendingDecision) {
     if (state.pendingDecision.playerId !== playerId) return [];
     return [{
@@ -224,7 +225,7 @@ export const getLegalActions = (state: GameState, playerId: string): LegalAction
     if (playerId !== state.activePlayerId && state.pendingAttack.blockerSlot === undefined) {
       player.field.forEach((card, blockerSlot) => {
         const threshold = state.pendingAttack?.maxBlockerPpExclusive;
-        if (card && !card.rested && (threshold === undefined || effectivePp(state, card) > threshold)) actions.push({ type: 'BLOCK', blockerSlot });
+        if (card && definitionFor(state, card.cardId).type === 'character' && !card.rested && (threshold === undefined || effectivePp(state, card) > threshold)) actions.push({ type: 'BLOCK', blockerSlot });
       });
     }
     for (const card of player.hand) {
@@ -249,14 +250,24 @@ export const getLegalActions = (state: GameState, playerId: string): LegalAction
   const actions: LegalAction[] = [{ type: 'END_PHASE' }];
   for (const card of player.hand) {
     const definition = definitionFor(state, card.cardId);
-    const canEvolve = evolutionTargetSlots(state, player, card.cardId).length > 0;
-    const minimumCost = canEvolve ? 2 : discountedCost(state, player, card.cardId, supportsBlueDiscount(state, card.cardId) ? blueDiscountSignals(state, player) : []) ?? definition.cost;
-    if (definition.subtype === 'instant' || !canPay(state, player, card.cardId, minimumCost)) continue;
-    const hasEmptySlot = player.field.some((item) => item === null);
-    const hasEquipmentTarget = definition.subtype === 'equipment' && player.field.some((item) => item && definitionFor(state, item.cardId).type === 'character' && !item.attached?.length);
-    if ((definition.type === 'character' || definition.subtype === 'support') && !hasEmptySlot && !canEvolve) continue;
-    if (definition.subtype === 'equipment' && !hasEmptySlot && !hasEquipmentTarget) continue;
-    actions.push({ type: 'PLAY_CARD', instanceId: card.instanceId });
+    if (definition.subtype === 'instant') continue;
+    const destinations: Array<{ fieldSlot?: number; targetSlot?: number }> = [];
+    if (definition.type === 'character' || definition.subtype === 'support' || definition.subtype === 'equipment') {
+      player.field.forEach((target, slot) => {
+        if (!target) destinations.push({ fieldSlot: slot });
+        else if (definition.subtype === 'equipment' && definitionFor(state, target.cardId).type === 'character' && !target.attached?.length) destinations.push({ targetSlot: slot });
+      });
+    } else destinations.push({});
+    const blues = supportsBlueDiscount(state, card.cardId) ? blueDiscountSignals(state, player) : [];
+    for (let eliminated = 0; eliminated <= Math.min(blues.length, Math.ceil(definition.cost / 2)); eliminated++) {
+      const discountSignalIds = blues.slice(0, eliminated);
+      const cost = discountedCost(state, player, card.cardId, discountSignalIds);
+      if (cost === null || !canPay(state, player, card.cardId, cost)) continue;
+      for (const destination of destinations) actions.push({ type: 'PLAY_CARD', instanceId: card.instanceId, ...destination, paymentCost: cost, ...(eliminated ? { discountSignalIds } : {}) });
+    }
+    if (canPay(state, player, card.cardId, 2)) {
+      for (const evolutionTargetSlot of evolutionTargetSlots(state, player, card.cardId)) actions.push({ type: 'PLAY_CARD', instanceId: card.instanceId, evolutionTargetSlot, paymentCost: 2 });
+    }
   }
   for (let startIndex = 0; startIndex + 2 < player.signals.length; startIndex += 1) actions.push({ type: 'ELIMINATE_SIGNALS', startIndex });
   player.field.forEach((card) => {
@@ -266,11 +277,11 @@ export const getLegalActions = (state: GameState, playerId: string): LegalAction
     });
   });
   player.field.forEach((card, attackerSlot) => {
-    if (!card || card.rested || (card.enteredTurn === state.turn && !isHaste(state, card))) return;
+    if (!card || definitionFor(state, card.cardId).type !== 'character' || card.rested || (card.enteredTurn === state.turn && !isHaste(state, card))) return;
     actions.push({ type: 'DECLARE_ATTACK', attackerSlot, target: 'player' });
     const opponent = state.players[opponentId(state, playerId)]!;
     opponent.field.forEach((target, targetSlot) => {
-      if (target?.rested) actions.push({ type: 'DECLARE_ATTACK', attackerSlot, target: 'character', targetSlot });
+      if (target?.rested && definitionFor(state, target.cardId).type === 'character') actions.push({ type: 'DECLARE_ATTACK', attackerSlot, target: 'character', targetSlot });
     });
   });
   return actions;
@@ -326,6 +337,7 @@ export const createPlayerView = (state: GameState, playerId: PlayerId): PlayerVi
     gameId: state.id,
     opening: { selfDone: self.mulliganDone, opponentDone: opponent.mulliganDone },
     processingPending: Boolean(state.pendingProcessing),
+    ...(state.status !== 'finished' && state.pendingDraw?.playerId === playerId ? { drawConfirmation: { count: state.pendingDraw.count, cards: state.pendingDraw.instanceIds.flatMap((id) => { const card = self.hand.find((entry) => entry.instanceId === id); return card ? [publicCard(state, card)] : []; }) } } : {}),
     version: state.version,
     status: state.status,
     viewerId: playerId,
@@ -643,6 +655,7 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
   if (state.status === 'finished') return reject(state, 'GAME_FINISHED', '对局已经结束');
   if (state.status === 'paused') return reject(state, 'ILLEGAL_ACTION', '对局已暂停，请等待双方重连');
   if (!state.players[command.playerId]) return reject(state, 'ILLEGAL_ACTION', '玩家不在该对局中');
+  if (state.pendingDraw && command.type !== 'CONFIRM_DRAW' && command.type !== 'CONCEDE') return reject(state, 'ILLEGAL_ACTION', '请先确认本回合抽牌');
   if (state.pendingProcessing && command.type !== 'CONCEDE') return reject(state, 'ILLEGAL_ACTION', '请等待处理区卡牌结算');
   if (state.pendingDecision) {
     if (command.type !== 'RESOLVE_EFFECT_DECISION') return reject(state, 'ILLEGAL_ACTION', '请先完成当前效果选择');
@@ -681,14 +694,20 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
     player.mulliganDone = true;
     addEvent(next, 'mulligan', player.id, `${player.id} 完成起手调度`);
     if (next.playerOrder.every((id) => next.players[id]!.mulliganDone)) next.phase = 'upright';
+  } else if (command.type === 'CONFIRM_DRAW' && next.pendingDraw?.playerId === command.playerId) {
+    next.pendingDraw = null;
+    next.phase = 'energy';
+    addEvent(next, 'draw-confirmed', player.id, `${player.id} 确认本回合抽牌`);
   } else if (command.type === 'ADVANCE_PHASE' && command.playerId === next.activePlayerId) {
     if (next.phase === 'upright') {
       for (const card of [...player.field.filter(Boolean), ...player.energy] as CardInstance[]) card.rested = false;
       next.phase = 'draw';
     } else if (next.phase === 'draw') {
       const count = next.turn === 1 ? 1 : 2;
-      for (let i = 0; i < count; i += 1) drawOne(next, player, rng);
-      next.phase = 'energy';
+      const drawn: string[] = [];
+      for (let i = 0; i < count; i += 1) { const card = drawOne(next, player, rng); if (card) drawn.push(card.instanceId); }
+      if (next.processingMode === 'deferred') next.pendingDraw = { playerId: player.id, count: drawn.length, instanceIds: drawn };
+      else next.phase = 'energy';
     } else return reject(state, 'ILLEGAL_ACTION', '当前阶段不能推进');
   } else if (command.type === 'SET_ENERGY' && command.playerId === next.activePlayerId && next.phase === 'energy') {
     if (command.instanceId) {
@@ -788,10 +807,10 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
     addEvent(next, 'signals-eliminated', player.id, `${player.id} 消除三张相邻信号球并抽1张牌`);
   } else if (command.type === 'DECLARE_ATTACK' && next.phase === 'main' && next.activePlayerId === command.playerId && !next.pendingAttack) {
     const attacker = player.field[command.attackerSlot];
-    if (!attacker || attacker.rested || (attacker.enteredTurn === next.turn && !isHaste(next, attacker))) return reject(state, 'ILLEGAL_ACTION', '该角色不能攻击');
+    if (!attacker || definitionFor(next, attacker.cardId).type !== 'character' || attacker.rested || (attacker.enteredTurn === next.turn && !isHaste(next, attacker))) return reject(state, 'ILLEGAL_ACTION', '该角色不能攻击');
     if (command.target === 'character') {
       const target = next.players[opponentId(next, player.id)]!.field[command.targetSlot ?? -1];
-      if (!target?.rested) return reject(state, 'ILLEGAL_ACTION', '只能攻击横置角色');
+      if (!target?.rested || definitionFor(next, target.cardId).type !== 'character') return reject(state, 'ILLEGAL_ACTION', '只能攻击横置角色');
     }
     attacker.rested = true;
     next.pendingAttack = {
@@ -818,7 +837,7 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
     continueEffectResolution(next, rng);
   } else if (command.type === 'BLOCK' && next.pendingAttack?.priorityPlayerId === command.playerId && command.playerId !== next.activePlayerId) {
     const blocker = player.field[command.blockerSlot];
-    if (!blocker || blocker.rested) return reject(state, 'ILLEGAL_ACTION', '该角色不能阻挡');
+    if (!blocker || definitionFor(next, blocker.cardId).type !== 'character' || blocker.rested) return reject(state, 'ILLEGAL_ACTION', '该角色不能阻挡');
     if (next.pendingAttack.maxBlockerPpExclusive !== undefined && effectivePp(next, blocker) <= next.pendingAttack.maxBlockerPpExclusive) {
       return reject(state, 'ILLEGAL_ACTION', '该角色的 PP 不足以阻挡本次攻击');
     }

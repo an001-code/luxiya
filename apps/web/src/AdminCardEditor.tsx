@@ -1,6 +1,7 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
 import { ApiError, adminCardImageUrl, type CardCatalogEntry, type CardDraftInput } from './api.js';
 import { EffectBuilder } from './effects/EffectBuilder.js';
+import { attributeLabels } from './card-labels.js';
 
 const blankDraft = (): CardDraftInput => ({
   id: '', name: '', type: 'character', cost: 0, attribute: 'physical', traits: [], pp: 0, dp: 0,
@@ -149,7 +150,7 @@ export function AdminCardEditor({ cards, onSave, onPublish, onSaveAndPublish, on
         <footer><button type="submit" disabled={busyAction !== null}>{busyAction === 'save' ? '正在保存…' : '保存草稿'}</button><button type="button" disabled={!draft.id || !selectedId || busyAction !== null} onClick={() => void publish()}>{busyAction === 'publish' ? '正在发布…' : '发布卡牌'}</button><button type="button" className="primary-action" disabled={!draft.id || busyAction !== null} onClick={() => void saveAndPublish()}>{busyAction === 'save-publish' ? '正在保存并发布…' : '保存并发布'}</button></footer>
       </form>
 
-      <aside className="card-preview"><div>{imagePreview ? <img src={imagePreview} alt="卡图预览" /> : <span>完整卡图预览</span>}</div><code>{draft.id || 'CARD-ID'}</code><h2>{draft.name || '未命名卡牌'}</h2><p>费用 {draft.cost} · {draft.attribute}{draft.rarity ? ` · ${draft.rarity}` : ''}</p>{draft.text.map((line, index) => <p key={`${index}-${line}`}>{line}</p>)}</aside>
+      <aside className="card-preview"><div>{imagePreview ? <img src={imagePreview} alt="卡图预览" /> : <span>完整卡图预览</span>}</div><code>{draft.id || 'CARD-ID'}</code><h2>{draft.name || '未命名卡牌'}</h2><p>费用 {draft.cost} · {attributeLabels[draft.attribute]}{draft.rarity ? ` · ${draft.rarity}` : ''}</p>{draft.text.map((line, index) => <p key={`${index}-${line}`}>{line}</p>)}</aside>
     </div>
   </section>;
 }

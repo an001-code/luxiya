@@ -3,6 +3,25 @@ import { createSeededRng, RoomManager } from './room-manager.js';
 import { cardDefinitions, developmentDeck } from '@pgr/cards';
 
 describe('RoomManager', () => {
+  test('automatically resets and draws once, then waits for player confirmation', () => {
+    const manager = new RoomManager({ codeGenerator: () => 'AUTODR', rng: createSeededRng('automatic-draw') });
+    const host = manager.createRoom(); const guest = manager.joinRoom(host.code);
+    manager.setReady(host, true); manager.setReady(guest, true);
+    const game = manager.rooms.get(host.code)!.game!;
+    game.phase = 'upright';
+    const player = game.players[game.activePlayerId]!;
+    player.energy[0]!.rested = true;
+    const before = player.hand.length;
+    manager.advanceAutomaticPhases(host.code);
+    const drawn = manager.rooms.get(host.code)!.game!;
+    expect(drawn.phase).toBe('draw');
+    expect(drawn.players[player.id]!.energy[0]!.rested).toBe(false);
+    expect(drawn.players[player.id]!.hand).toHaveLength(before + 1);
+    expect(drawn.pendingDraw?.count).toBe(1);
+    manager.advanceAutomaticPhases(host.code);
+    expect(manager.rooms.get(host.code)!.game!.version).toBe(drawn.version);
+    expect(manager.rooms.get(host.code)!.game!.players[player.id]!.hand).toHaveLength(before + 1);
+  });
   test('creates a repeatable random sequence from an explicit seed', () => {
     const first = createSeededRng('e2e-card-effects');
     const second = createSeededRng('e2e-card-effects');

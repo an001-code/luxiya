@@ -56,6 +56,10 @@ describe('card platform screens', () => {
     expect(html).toContain('测试角色');
     expect(html).toContain('费用 3');
     expect(html).toContain('【出】：抽1张牌。');
+    expect(html).toContain('物理');
+    expect(html).toContain('角色牌');
+    expect(html).not.toContain('>physical<');
+    expect(html).not.toContain('>character<');
   });
 
   it('shows deck count, validation errors, and activation state', () => {

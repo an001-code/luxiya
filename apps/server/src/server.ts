@@ -88,6 +88,7 @@ export const buildServer = (options: BuildServerOptions = {}) => {
 
   const processingTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const emitRoom = (code: string): void => {
+    manager.advanceAutomaticPhases(code);
     const room = manager.rooms.get(code);
     if (!room) return;
     for (const socket of io.sockets.sockets.values()) {

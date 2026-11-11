@@ -154,6 +154,7 @@ export interface GameEvent {
 }
 
 export interface GameState {
+  pendingDraw?: { playerId: PlayerId; count: number; instanceIds: string[] } | null;
   processingMode?: 'deferred';
   pendingProcessing?: { kind: 'tactic' | 'attack-charge' | 'damage-charge'; playerId: PlayerId; instanceId: string } | null;
   processingCleanup?: Array<{ playerId: PlayerId; instanceId: string; destination: 'signals' | 'graveyard' }>;
@@ -186,6 +187,7 @@ export interface CommandBase {
 export type GameCommand = CommandBase & (
   | { type: 'MULLIGAN'; instanceIds: string[] }
   | { type: 'ADVANCE_PHASE' }
+  | { type: 'CONFIRM_DRAW' }
   | { type: 'SET_ENERGY'; instanceId?: string }
   | { type: 'PLAY_CARD'; instanceId: string; fieldSlot?: number; targetSlot?: number; evolutionTargetSlot?: number; paymentIds?: string[]; discountSignalIds?: string[] }
   | { type: 'ELIMINATE_SIGNALS'; startIndex: number }
@@ -201,7 +203,7 @@ export type GameCommand = CommandBase & (
 
 export type LegalAction = GameCommand extends infer Command
   ? Command extends CommandBase
-    ? Omit<Command, keyof CommandBase>
+    ? Command extends { type: 'PLAY_CARD' } ? Omit<Command, keyof CommandBase> & { paymentCost?: number } : Omit<Command, keyof CommandBase>
     : never
   : never;
 
@@ -240,6 +242,7 @@ export interface PlayerBoardView {
 }
 
 export interface PlayerView {
+  drawConfirmation?: { count: number; cards: PublicCardView[] };
   opening?: { selfDone: boolean; opponentDone: boolean };
   processingPending?: boolean;
   gameId: string;

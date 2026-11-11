@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { CardCatalogEntry } from './api.js';
 import { cardImageUrl } from './api.js';
+import { attributeLabels, cardTypeLabel } from './card-labels.js';
 
 export function CardLibrary({ cards, loading }: { cards: CardCatalogEntry[]; loading: boolean }) {
   const [query, setQuery] = useState('');
@@ -15,6 +16,6 @@ export function CardLibrary({ cards, loading }: { cards: CardCatalogEntry[]; loa
       <small>{filtered.length} 张已发布卡牌</small></aside>
     <div className="card-catalog-grid">{loading ? <p>正在同步卡牌数据…</p> : filtered.map((card) => <button className={`catalog-card ${selected?.id === card.id ? 'selected' : ''}`} key={card.id} onClick={() => setSelectedId(card.id)}>
       <div className="catalog-art">{card.hasImage ? <img src={cardImageUrl(card.id)} alt={card.name} /> : <span>暂无卡图</span>}</div><strong>{card.name}</strong><code>{card.id}</code><em>费用 {card.cost}</em></button>)}{!loading && filtered.length === 0 && <p className="catalog-empty">没有找到符合条件的卡牌，试试其他名称或类型。</p>}</div>
-    <aside className="detail-rail">{selected ? <><div className="detail-card-art">{selected.hasImage ? <img src={cardImageUrl(selected.id)} alt={selected.name} /> : '缺少卡图'}</div><code>{selected.id}</code><h2>{selected.name}</h2><div className="detail-tags"><span>费用 {selected.cost}</span><span>{selected.attribute}</span><span>{selected.type}</span></div>{selected.pp !== undefined && <p>PP {selected.pp} · DP {selected.dp ?? 0}</p>}<hr />{selected.text.map((line) => <p key={line}>{line}</p>)}</> : <p>选择一张卡牌查看详情</p>}</aside>
+    <aside className="detail-rail">{selected ? <><div className="detail-card-art">{selected.hasImage ? <img src={cardImageUrl(selected.id)} alt={selected.name} /> : '缺少卡图'}</div><code>{selected.id}</code><h2>{selected.name}</h2><div className="detail-tags"><span>费用 {selected.cost}</span><span>{attributeLabels[selected.attribute]}</span><span>{cardTypeLabel(selected)}</span></div>{selected.pp !== undefined && <p>PP {selected.pp} · DP {selected.dp ?? 0}</p>}<hr />{selected.text.map((line) => <p key={line}>{line}</p>)}</> : <p>选择一张卡牌查看详情</p>}</aside>
   </section>;
 }

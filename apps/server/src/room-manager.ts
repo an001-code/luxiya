@@ -146,6 +146,18 @@ export class RoomManager {
     return true;
   }
 
+  advanceAutomaticPhases(code: string): void {
+    const room = this.rooms.get(code);
+    if (!room?.game) return;
+    for (let steps = 0; steps < 2; steps++) {
+      const state = room.game;
+      if (state.status !== 'playing' || state.pendingDraw || state.pendingProcessing || state.pendingDecision || (state.phase !== 'upright' && state.phase !== 'draw')) return;
+      const result = applyCommand(state, { type: 'ADVANCE_PHASE', playerId: state.activePlayerId, commandId: randomUUID(), expectedVersion: state.version }, this.rng);
+      if (!result.accepted) return;
+      room.game = result.state;
+    }
+  }
+
   markDisconnected(credentials: RoomCredentials): void {
     const seat = this.requireSeat(credentials);
     seat.connected = false;

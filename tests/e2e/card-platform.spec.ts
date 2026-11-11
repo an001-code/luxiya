@@ -73,11 +73,9 @@ const buildDeck = async (context: BrowserContext, name: string) => {
 };
 
 const advanceToMain = async (page: Page) => {
-  const primary = page.locator('.action-console > .primary-action');
-  await expect(page.locator('.phase-status')).toContainText('竖直阶段');
-  await primary.click();
-  await expect(page.locator('.phase-status')).toContainText('抽牌阶段');
-  await primary.click();
+  await expect(page.getByRole('dialog', { name: '抽牌完成' })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('automatic-draw-confirmation.png') });
+  await page.getByRole('button', { name: '确认抽牌' }).click();
   await expect(page.locator('.phase-status')).toContainText('费用填充');
   await page.getByRole('dialog', { name: '选择费用填充' }).getByRole('button', { name: '跳过填充' }).click();
   await expect(page.locator('.phase-status')).toContainText('主要阶段');
@@ -87,7 +85,10 @@ const playFirstUnit = async (page: Page) => {
   const unit = page.locator('.hand-cards .mini-card[title^="E2E构造体"]').first();
   await expect(unit).toBeVisible();
   await unit.click();
+  await page.getByRole('button', { name: '出场至 A3 · 费用 0', exact: true }).click();
+  await page.screenshot({ path: test.info().outputPath('choose-field-position.png') });
   await page.getByRole('button', { name: '使用卡牌' }).click();
+  await expect(page.locator('[data-field-slot="self-2"] .mini-card')).toBeVisible();
   await expect(page.locator('.field-row.self .mini-card[title^="E2E构造体"]')).toBeVisible();
   const artwork = page.locator('.field-row.self .mini-card img').first();
   await expect.poll(() => artwork.evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
@@ -198,9 +199,12 @@ test('administrator publishes BP01-007 and two players resolve its live effect',
 
   await expect(guest.locator('.phase-status')).toContainText('我方行动');
   await advanceToMain(guest);
-  await guest.getByRole('button', { name: '攻击玩家' }).click();
+  await guest.getByRole('button', { name: '攻击', exact: true }).click();
+  await guest.getByRole('button', { name: '攻击对方玩家', exact: true }).click();
+  await guest.screenshot({ path: testInfo.outputPath('choose-attack-target.png') });
+  await guest.getByRole('button', { name: '确认攻击', exact: true }).click();
   await expect(host.locator('.phase-status')).toContainText('攻击响应窗口');
-  const instant = host.locator('.hand-cards .mini-card[title="刹那冰华"]').first();
+  const instant = host.getByRole('dialog', { name: '是否阻挡本次攻击？' }).locator('.mini-card[title="刹那冰华"]').first();
   await expect(instant).toBeVisible();
   await instant.click();
   await host.getByRole('button', { name: '使用卡牌' }).click();
@@ -241,6 +245,16 @@ test('administrator publishes BP01-007 and two players resolve its live effect',
   await host.screenshot({ path: testInfo.outputPath('battle-layout-1280.png') });
   await host.setViewportSize({ width: 1920, height: 1080 });
 
+  await guest.getByRole('button', { name: '不响应' }).click();
+  const defense = host.getByRole('dialog', { name: '是否阻挡本次攻击？' });
+  await expect(defense).toBeVisible();
+  await host.setViewportSize({ width: 1280, height: 720 });
+  await defense.locator('.blocker-choice-grid .mini-card').first().click();
+  await defense.getByRole('button', { name: '确认阻挡' }).scrollIntoViewIfNeeded();
+  await expect(defense.getByRole('button', { name: '确认阻挡' })).toBeInViewport();
+  await host.screenshot({ path: testInfo.outputPath('choose-blocker-1280.png') });
+  await defense.getByRole('button', { name: '确认阻挡' }).click();
+  await expect(host.locator('[data-field-slot="self-2"] .mini-card')).toHaveClass(/rested/);
   await guest.getByRole('button', { name: '不响应' }).click();
   await host.getByRole('button', { name: '不响应' }).click();
   await expect(host.locator('.phase-status')).not.toContainText('攻击响应窗口');
