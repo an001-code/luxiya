@@ -1,6 +1,6 @@
 import type { Attribute, CardSubtype, CardType, SignalColor, StructuredEffect } from '@pgr/protocol';
 
-export const API = 'http://localhost:3001';
+export const API = import.meta.env.VITE_API ?? 'http://localhost:3001';
 
 export interface UserSummary { id: string; username: string; role: 'player' | 'admin' }
 export interface CardCatalogEntry {

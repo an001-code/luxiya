@@ -123,6 +123,7 @@ describe('instant and equipment effects', () => {
       expectedVersion: played.state.version, decisionId: played.state.pendingDecision!.id, selectedInstanceIds: ['extra-1'],
     }, sequenceRng([0.1]));
     expect(resolved.state.continuousModifiers.filter((modifier) => modifier.targetInstanceIds.includes('gray-raven')).map((modifier) => modifier.value)).toEqual([1500, 1000]);
+    expect(createPlayerView(resolved.state, defenderId).self.field[0]).toMatchObject({ effectivePp: 5500, effectiveDp: 0 });
     expect(resolved.state.players[defenderId]!.graveyard.map((entry) => entry.instanceId)).toEqual(expect.arrayContaining(['instant', 'extra-1']));
 
     const endState = makeGame();

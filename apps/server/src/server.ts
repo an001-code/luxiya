@@ -12,6 +12,12 @@ import { createMemoryRepository } from './persistence/memory-repository.js';
 import type { AppRepository } from './persistence/types.js';
 import { RoomManager, type MatchSeatConfig } from './room-manager.js';
 
+const allowedWebOrigins = [
+  'http://localhost:5173', 'http://127.0.0.1:5173',
+  'http://localhost:5174', 'http://127.0.0.1:5174',
+  'http://localhost:5184', 'http://127.0.0.1:5184',
+];
+
 const statusForError = (error: unknown): number => {
   const message = error instanceof Error ? error.message : '';
   if (message === 'ROOM_NOT_FOUND') return 404;
@@ -31,7 +37,11 @@ export const buildServer = (options: BuildServerOptions = {}) => {
   const manager = options.manager ?? new RoomManager();
   const repository = options.repository ?? createMemoryRepository();
   const app = Fastify({ logger: false, bodyLimit: 12 * 1024 * 1024 });
-  void app.register(cors, { origin: true, credentials: true });
+  void app.register(cors, {
+    origin: allowedWebOrigins,
+    credentials: true,
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  });
 
   const authService = new AuthService(repository, { ...(options.now ? { now: options.now } : {}) });
   const authGuard = registerAuthRoutes(app, authService, { secureCookie: process.env.NODE_ENV === 'production' });
@@ -71,7 +81,7 @@ export const buildServer = (options: BuildServerOptions = {}) => {
 
   const io = new SocketServer<ClientToServerEvents, ServerToClientEvents>(app.server, {
     cors: {
-      origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:5174', 'http://127.0.0.1:5174'],
+      origin: allowedWebOrigins,
       credentials: true,
     },
   });

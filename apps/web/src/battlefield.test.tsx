@@ -54,6 +54,12 @@ describe('Battlefield', () => {
     expect(html).toContain('胜利');
   });
 
+  test('shows the authoritative effective PP after temporary modifiers', () => {
+    const enhanced = { instanceId: 'enhanced', cardId: 'ST01-005', face: 'up' as const, rested: false, effectivePp: 5500, effectiveDp: 0 };
+    const html = renderToStaticMarkup(<Battlefield view={{ ...view, self: { ...view.self, field: [enhanced, null, null, null, null] } }} onCommand={() => undefined} />);
+    expect(html).toContain('PP 5500 · DP 0');
+  });
+
   test('offers an explicit mulligan confirmation during opening setup', () => {
     const html = renderToStaticMarkup(<Battlefield view={{ ...view, phase: 'mulligan', legalActions: [{ type: 'MULLIGAN', instanceIds: [] }] }} onCommand={() => undefined} />);
     expect(html).toContain('确认调度');

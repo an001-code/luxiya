@@ -216,6 +216,8 @@ export interface GameResult {
 export interface HiddenZoneView { count: number }
 export interface PublicCardView extends Omit<CardInstance, 'cardId' | 'attached' | 'underneath'> {
   cardId: string | null;
+  effectivePp?: number;
+  effectiveDp?: number;
   attached?: PublicCardView[];
   underneath?: PublicCardView[];
 }

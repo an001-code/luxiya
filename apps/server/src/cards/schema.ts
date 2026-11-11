@@ -37,7 +37,7 @@ const costSchema = z.discriminatedUnion('kind', [
 ]);
 const targetSchema = z.discriminatedUnion('kind', [
   z.object({ id: z.string().trim().min(1), kind: z.literal('player'), player: playerSchema, min: z.number().int().min(0), max: z.number().int().min(0), optional: z.boolean().optional() }),
-  z.object({ id: z.string().trim().min(1), kind: z.literal('cards'), player: playerSchema, zone: zoneSchema, min: z.number().int().min(0), max: z.number().int().min(0), optional: z.boolean().optional(), ordered: z.boolean().optional(), filter: cardFilterSchema.optional() }),
+  z.object({ id: z.string().trim().min(1), kind: z.literal('cards'), player: playerSchema, zone: zoneSchema, min: z.number().int().min(0), max: z.number().int().min(0), prompt: z.string().trim().min(1).optional(), optional: z.boolean().optional(), ordered: z.boolean().optional(), filter: cardFilterSchema.optional() }),
 ]);
 
 const actionSchema: z.ZodType<EffectAction> = z.lazy(() => z.discriminatedUnion('kind', [

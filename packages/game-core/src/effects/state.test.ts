@@ -9,6 +9,7 @@ const targetEffect: StructuredEffect = {
   id: 'test-target-effect', ability: 'enter', conditions: [], costs: [],
   targets: [{
     id: 'character', kind: 'cards', player: 'self', zone: 'field', min: 1, max: 1,
+    prompt: '请选择要横置的角色',
     filter: { types: ['character'] },
   }],
   actions: [{ kind: 'rest', targetId: 'character' }],
@@ -29,7 +30,7 @@ describe('authoritative effect decisions', () => {
     const controllerId = state.activePlayerId;
     const opponentId = state.playerOrder.find((id) => id !== controllerId)!;
     expect(state.pendingDecision).toMatchObject({
-      playerId: controllerId, kind: 'select-cards', targetId: 'character', min: 1, max: 1,
+      playerId: controllerId, kind: 'select-cards', targetId: 'character', prompt: '请选择要横置的角色', min: 1, max: 1,
     });
     expect(state.pendingDecision?.options.map((option) => option.instanceId)).toEqual(['target-1', 'target-2']);
     expect(getLegalActions(state, controllerId)).toEqual([{

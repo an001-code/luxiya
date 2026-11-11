@@ -45,7 +45,7 @@ export type EffectCost =
 
 export type EffectTarget =
   | { id: string; kind: 'player'; player: EffectPlayer; min: number; max: number; optional?: boolean }
-  | { id: string; kind: 'cards'; player: EffectPlayer; zone: EffectZone; min: number; max: number; optional?: boolean; ordered?: boolean; filter?: EffectCardFilter };
+  | { id: string; kind: 'cards'; player: EffectPlayer; zone: EffectZone; min: number; max: number; prompt?: string | undefined; optional?: boolean; ordered?: boolean; filter?: EffectCardFilter };
 
 export type EffectDuration =
   | { kind: 'instant' }

@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { cardDefinitions, developmentDeck } from '@pgr/cards';
-import { applyCommand, createGame, createPlayerView } from '@pgr/game-core';
+import { applyCommand, createGame, createPlayerView, type Rng } from '@pgr/game-core';
 import type { CardDefinition, DeckDefinition, GameCommand, GameState, RoomCredentials, RoomSnapshot } from '@pgr/protocol';
 
 export interface MatchSeatConfig {
@@ -29,7 +29,23 @@ interface RoomManagerOptions {
   codeGenerator?: () => string;
   tokenGenerator?: () => string;
   now?: () => number;
+  rng?: Rng;
 }
+
+export const createSeededRng = (seedText: string): Rng => {
+  let seed = 0x811c9dc5;
+  for (const character of seedText) {
+    seed ^= character.charCodeAt(0);
+    seed = Math.imul(seed, 0x01000193);
+  }
+  return () => {
+    seed |= 0;
+    seed = seed + 0x6d2b79f5 | 0;
+    let value = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    value = value + Math.imul(value ^ value >>> 7, 61 | value) ^ value;
+    return ((value ^ value >>> 14) >>> 0) / 4294967296;
+  };
+};
 
 const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const randomCode = (): string => Array.from(randomBytes(6), (byte) => alphabet[byte % alphabet.length]).join('');
@@ -39,11 +55,13 @@ export class RoomManager {
   private readonly codeGenerator: () => string;
   private readonly tokenGenerator: () => string;
   private readonly now: () => number;
+  private readonly rng: Rng;
 
   constructor(options: RoomManagerOptions = {}) {
     this.codeGenerator = options.codeGenerator ?? randomCode;
     this.tokenGenerator = options.tokenGenerator ?? randomUUID;
     this.now = options.now ?? Date.now;
+    this.rng = options.rng ?? Math.random;
   }
 
   createRoom(config?: MatchSeatConfig): RoomCredentials {
@@ -97,7 +115,7 @@ export class RoomManager {
         [room.seats[0]!.playerId, room.seats[1]!.playerId],
         [room.seats[0]!.deck, room.seats[1]!.deck],
         definitions,
-        Math.random,
+        this.rng,
       );
     }
   }
@@ -107,7 +125,7 @@ export class RoomManager {
     this.requireSeat(credentials);
     if (!room.game) throw new Error('GAME_NOT_STARTED');
     if (command.playerId !== credentials.playerId) throw new Error('PLAYER_MISMATCH');
-    const result = applyCommand(room.game, command, Math.random);
+    const result = applyCommand(room.game, command, this.rng);
     if (result.accepted) room.game = result.state;
     return result;
   }

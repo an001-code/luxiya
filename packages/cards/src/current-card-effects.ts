@@ -86,7 +86,7 @@ export const currentCardEffects: Record<string, StructuredEffect[]> = {
     conditions: [], costs: [],
     targets: [
       { id: 'boosted', kind: 'cards', player: 'self', zone: 'field', min: 1, max: 1, filter: { types: ['character'], traits: ['灰鸦小队'] } },
-      { id: 'extra-discard', kind: 'cards', player: 'self', zone: 'hand', min: 0, max: 99, optional: true },
+      { id: 'extra-discard', kind: 'cards', player: 'self', zone: 'hand', min: 0, max: 99, prompt: '请选择追加丢弃的手牌', optional: true },
     ],
     actions: [
       { kind: 'discard', targetId: 'extra-discard' },

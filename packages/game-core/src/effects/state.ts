@@ -68,7 +68,7 @@ const makeDecision = (state: GameState, frame: EffectFrame, target: Extract<Effe
     playerId: frame.controllerId,
     kind: target.ordered ? 'order-cards' : 'select-cards',
     purpose: 'target',
-    prompt: `请选择 ${target.min}-${target.max} 张卡牌`,
+    prompt: target.prompt ?? `请选择 ${target.min}-${target.max} 张卡牌`,
     min: target.min,
     max: target.max,
     targetId: target.id,

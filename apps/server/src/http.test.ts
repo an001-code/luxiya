@@ -23,6 +23,22 @@ describe('HTTP API', () => {
     expect((await server.inject({ method: 'POST', url: '/api/rooms/ABC123/join' })).statusCode).toBe(401);
   });
 
+  test('allows browser preflight for administrator PUT requests', async () => {
+    const server = buildServer();
+    servers.push(server);
+    const response = await server.inject({
+      method: 'OPTIONS',
+      url: '/api/admin/cards/BP01-007',
+      headers: {
+        origin: 'http://127.0.0.1:5184',
+        'access-control-request-method': 'PUT',
+        'access-control-request-headers': 'content-type',
+      },
+    });
+    expect(response.statusCode).toBe(204);
+    expect(response.headers['access-control-allow-methods']).toContain('PUT');
+  });
+
   test('loads an authenticated players active deck and rejects accounts without one', async () => {
     const repository = createMemoryRepository();
     const manager = new RoomManager({ codeGenerator: () => 'DECK01', tokenGenerator: () => 'room-token' });

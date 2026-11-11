@@ -158,7 +158,7 @@ function TargetEditor({ target, onChange, onRemove }: { target: EffectTarget; on
       ? { id: target.id, kind: 'player', player: 'self', min: 1, max: 1 }
       : { id: target.id, kind: 'cards', player: 'self', zone: 'field', min: 1, max: 1 })}><option value="cards">卡牌</option><option value="player">玩家</option></select></label>
     <PlayerField value={target.player} onChange={(player) => onChange({ ...target, player })} />
-    {target.kind === 'cards' && <ZoneField value={target.zone} onChange={(zone) => onChange({ ...target, zone })} />}
+    {target.kind === 'cards' && <><ZoneField value={target.zone} onChange={(zone) => onChange({ ...target, zone })} /><label>选择提示<input value={target.prompt ?? ''} placeholder="例如：请选择要强化的角色" onChange={(event) => onChange({ ...target, prompt: event.target.value || undefined })} /></label></>}
     <NumberField label="最少" min={0} value={target.min} onChange={(min) => onChange({ ...target, min })} />
     <NumberField label="最多" min={0} value={target.max} onChange={(max) => onChange({ ...target, max })} />
     <button type="button" onClick={onRemove}>移除</button>

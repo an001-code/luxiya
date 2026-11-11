@@ -275,31 +275,32 @@ export const getLegalActions = (state: GameState, playerId: string): LegalAction
   return actions;
 };
 
-const publicCard = (card: CardInstance, hideIdentity = false): PublicCardView => ({
+const publicCard = (state: GameState, card: CardInstance, hideIdentity = false): PublicCardView => ({
   instanceId: card.instanceId,
   cardId: hideIdentity ? null : card.cardId,
   face: card.face,
   rested: card.rested,
+  ...(!hideIdentity && definitionFor(state, card.cardId).type === 'character' ? { effectivePp: effectivePp(state, card), effectiveDp: effectiveDp(state, card) } : {}),
   ...(card.enteredTurn === undefined ? {} : { enteredTurn: card.enteredTurn }),
   ...(card.frozen === undefined ? {} : { frozen: card.frozen }),
   ...(card.temporaryPp === undefined ? {} : { temporaryPp: card.temporaryPp }),
   ...(card.temporaryDp === undefined ? {} : { temporaryDp: card.temporaryDp }),
-  ...(card.attached ? { attached: card.attached.map((item) => publicCard(item, hideIdentity)) } : {}),
-  ...(card.underneath ? { underneath: card.underneath.map((item) => publicCard(item, hideIdentity)) } : {}),
+  ...(card.attached ? { attached: card.attached.map((item) => publicCard(state, item, hideIdentity)) } : {}),
+  ...(card.underneath ? { underneath: card.underneath.map((item) => publicCard(state, item, hideIdentity)) } : {}),
   ...(card.mode === undefined ? {} : { mode: card.mode }),
   ...(card.evolved === undefined ? {} : { evolved: card.evolved }),
   ...(card.returnAtTurn === undefined ? {} : { returnAtTurn: card.returnAtTurn }),
 });
 
-const boardView = (player: PlayerState, own: boolean): PlayerBoardView => ({
+const boardView = (state: GameState, player: PlayerState, own: boolean): PlayerBoardView => ({
   id: player.id,
   hand: own ? player.hand.map((card) => ({ ...card })) : { count: player.hand.length },
   deck: { count: player.deck.length },
-  graveyard: player.graveyard.map((card) => publicCard(card)),
-  processing: player.processing.map((card) => publicCard(card)),
-  field: player.field.map((card) => card ? publicCard(card) : null),
-  signals: player.signals.map((card) => publicCard(card)),
-  energy: player.energy.map((card) => publicCard(card, !own && card.face === 'down')),
+  graveyard: player.graveyard.map((card) => publicCard(state, card)),
+  processing: player.processing.map((card) => publicCard(state, card)),
+  field: player.field.map((card) => card ? publicCard(state, card) : null),
+  signals: player.signals.map((card) => publicCard(state, card)),
+  energy: player.energy.map((card) => publicCard(state, card, !own && card.face === 'down')),
   corruption: player.corruption,
 });
 
@@ -325,8 +326,8 @@ export const createPlayerView = (state: GameState, playerId: PlayerId): PlayerVi
     version: state.version,
     status: state.status,
     viewerId: playerId,
-    self: boardView(self, true),
-    opponent: boardView(opponent, false),
+    self: boardView(state, self, true),
+    opponent: boardView(state, opponent, false),
     activePlayerId: state.activePlayerId,
     phase: state.phase,
     turn: state.turn,

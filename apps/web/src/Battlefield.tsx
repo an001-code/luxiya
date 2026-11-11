@@ -16,12 +16,14 @@ const cardName = (card: ViewCard): string => card.cardId ? getCardDefinition(car
 
 function MiniCard({ card, selected, legal, onClick }: { card: ViewCard; selected?: boolean; legal?: boolean; onClick?: () => void }) {
   const definition = card.cardId ? getCardDefinition(card.cardId) : null;
+  const displayedPp = 'effectivePp' in card && card.effectivePp !== undefined ? card.effectivePp : definition?.pp;
+  const displayedDp = 'effectiveDp' in card && card.effectiveDp !== undefined ? card.effectiveDp : definition?.dp;
   return (
     <button data-card-view={card.instanceId} className={`mini-card ${selected ? 'selected' : ''} ${legal ? 'legal' : ''} ${card.rested ? 'rested' : ''}`} onClick={onClick} disabled={!onClick} title={cardName(card)}>
       <span className="card-cost">{definition?.cost ?? '?'}</span>
       <span className="card-art">{definition ? definition.name.slice(0, 1) : '◆'}</span>
       <strong>{definition?.name ?? '隐藏卡牌'}</strong>
-      {definition?.type === 'character' && <small>PP {definition.pp} · DP {definition.dp}</small>}
+      {definition?.type === 'character' && <small>PP {displayedPp} · DP {displayedDp}</small>}
     </button>
   );
 }
@@ -154,11 +156,16 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
 
   const playSelectedCard = () => {
     if (!actionCard || !actionDefinition || !playableIds.has(actionCard.instanceId) || !paymentValid) return;
+    const sendPlayCommand = (command: Extract<LegalAction, { type: 'PLAY_CARD' }>) => {
+      onCommand(command);
+      setActionCardId(null);
+      setPaymentIds([]);
+    };
     if (actionDefinition.subtype === 'equipment') {
       const targetSlot = view.self.field.findIndex((card) => card?.cardId && getCardDefinition(card.cardId).type === 'character' && !card.attached?.length);
-      if (targetSlot >= 0) onCommand({ type: 'PLAY_CARD', instanceId: actionCard.instanceId, targetSlot, paymentIds });
-      else onCommand({ type: 'PLAY_CARD', instanceId: actionCard.instanceId, fieldSlot: view.self.field.findIndex((card) => card === null), paymentIds });
-    } else onCommand({ type: 'PLAY_CARD', instanceId: actionCard.instanceId, fieldSlot: view.self.field.findIndex((card) => card === null), paymentIds });
+      if (targetSlot >= 0) sendPlayCommand({ type: 'PLAY_CARD', instanceId: actionCard.instanceId, targetSlot, paymentIds });
+      else sendPlayCommand({ type: 'PLAY_CARD', instanceId: actionCard.instanceId, fieldSlot: view.self.field.findIndex((card) => card === null), paymentIds });
+    } else sendPlayCommand({ type: 'PLAY_CARD', instanceId: actionCard.instanceId, fieldSlot: view.self.field.findIndex((card) => card === null), paymentIds });
   };
 
   const actionLabel = view.phase === 'mulligan' ? `确认调度 (${mulliganIds.length})` : (view.pendingAttack || view.priorityWindow) ? '不响应' : view.phase === 'energy' ? (actionCardId ? '放置为费用' : '跳过填充') : view.phase === 'main' ? '结束阶段' : '推进阶段';

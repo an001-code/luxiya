@@ -40,6 +40,14 @@ const cookieValue = (header: string | string[] | undefined): string => {
 };
 
 describe('admin card API', () => {
+  it('preserves a semantic prompt on card-selection targets', () => {
+    const definition = cardDefinitions.find((card) => card.id === 'BP01-007')!;
+    const parsed = cardInputSchema.parse(definition);
+    expect(parsed.structuredEffects[0]?.targets[1]).toMatchObject({
+      id: 'extra-discard', prompt: '请选择追加丢弃的手牌',
+    });
+  });
+
   it('synchronizes only built-in effect fields and is idempotent', async () => {
     const repository = createMemoryRepository();
     await seedBuiltInCards(repository, () => new Date('2026-11-09T00:00:00.000Z'));

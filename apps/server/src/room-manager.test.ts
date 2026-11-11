@@ -1,8 +1,13 @@
 import { describe, expect, test } from 'vitest';
-import { RoomManager } from './room-manager.js';
+import { createSeededRng, RoomManager } from './room-manager.js';
 import { cardDefinitions, developmentDeck } from '@pgr/cards';
 
 describe('RoomManager', () => {
+  test('creates a repeatable random sequence from an explicit seed', () => {
+    const first = createSeededRng('e2e-card-effects');
+    const second = createSeededRng('e2e-card-effects');
+    expect(Array.from({ length: 100 }, () => first())).toEqual(Array.from({ length: 100 }, () => second()));
+  });
   test('creates a six-character room and lets exactly one opponent join', () => {
     const manager = new RoomManager({ codeGenerator: () => 'ABC123', tokenGenerator: () => 'token' });
     const host = manager.createRoom();
