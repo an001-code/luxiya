@@ -206,6 +206,7 @@ const evolutionTargetSlots = (state: GameState, player: PlayerState, cardId: str
 
 export const getLegalActions = (state: GameState, playerId: string): LegalAction[] => {
   if (state.status !== 'playing') return [];
+  if (state.pendingProcessing) return [];
   const player = state.players[playerId];
   if (!player) return [];
   if (state.pendingDecision) {
@@ -323,6 +324,8 @@ export const createPlayerView = (state: GameState, playerId: PlayerId): PlayerVi
     : null;
   return {
     gameId: state.id,
+    opening: { selfDone: self.mulliganDone, opponentDone: opponent.mulliganDone },
+    processingPending: Boolean(state.pendingProcessing),
     version: state.version,
     status: state.status,
     viewerId: playerId,
@@ -463,6 +466,7 @@ const sendFieldCardToGrave = (state: GameState, player: PlayerState, slot: numbe
 };
 
 const resolveAttack = (state: GameState, rng: Rng): void => {
+  if (state.processingMode === 'deferred') { resolveDeferredAttack(state, rng); return; }
   const pending = state.pendingAttack;
   if (!pending) return;
   const attackerPlayer = state.players[state.activePlayerId]!;
@@ -494,6 +498,124 @@ const resolveAttack = (state: GameState, rng: Rng): void => {
   state.pendingAttack = null;
 };
 
+const cleanupResolvedTactics = (state: GameState): void => {
+  if (state.pendingDecision || state.effectStack.length > 0) return;
+  for (const entry of state.processingCleanup ?? []) {
+    const player = state.players[entry.playerId]!;
+    const index = player.processing.findIndex((card) => card.instanceId === entry.instanceId);
+    if (index < 0) continue;
+    const [card] = player.processing.splice(index, 1);
+    if (entry.destination === 'signals') player.signals.unshift(card!);
+    else player.graveyard.push(card!);
+  }
+  state.processingCleanup = [];
+};
+
+const revealCharge = (state: GameState, player: PlayerState, kind: 'attack-charge' | 'damage-charge', rng: Rng): boolean => {
+  if (player.deck.length === 0 && player.graveyard.length > 0) {
+    player.deck = shuffle(player.graveyard.splice(0).map((card) => ({ ...card, face: 'down' as const, rested: false })), rng);
+    player.corruption += 1;
+    addEvent(state, 'deck-refresh', player.id, `${player.id} 进行了牌组更新，侵蚀+1`);
+  }
+  const card = player.deck.shift();
+  if (!card) return false;
+  card.face = 'up'; player.processing.push(card);
+  state.pendingProcessing = { kind, playerId: player.id, instanceId: card.instanceId };
+  addEvent(state, 'processing-revealed', player.id, `${player.id} ${kind === 'attack-charge' ? '攻击' : '伤害'}充能公开《${definitionFor(state, card.cardId).name}》`);
+  return true;
+};
+
+const resolveDeferredAttack = (state: GameState, rng: Rng): void => {
+  const pending = state.pendingAttack;
+  if (!pending || state.pendingProcessing || state.pendingDecision) return;
+  const attackerPlayer = state.players[state.activePlayerId]!;
+  const defenderPlayer = state.players[opponentId(state, state.activePlayerId)]!;
+  const attacker = attackerPlayer.field[pending.attackerSlot];
+  const finish = () => {
+    state.continuousModifiers = state.continuousModifiers.filter((modifier) => modifier.duration.kind !== 'attack');
+    state.pendingAttack = null;
+  };
+  if (!attacker) { finish(); return; }
+  if (pending.stage === 'response') {
+    pending.stage = 'combat';
+    const modifier = definitionFor(state, attacker.cardId).structuredEffects
+      ?.flatMap((effect) => effect.ability === 'permanent' ? effect.actions : [])
+      .find((action) => action.kind === 'modify-stat' && action.targetId === 'source' && action.stat === 'charge');
+    pending.remainingCharges = Math.max(0, modifier?.kind === 'modify-stat' && modifier.value.kind === 'fixed'
+      ? modifier.operation === 'set' ? modifier.value.value : 1 + modifier.value.value : 1);
+  }
+  if ((pending.remainingCharges ?? 0) > 0) {
+    pending.remainingCharges! -= 1;
+    if (revealCharge(state, attackerPlayer, 'attack-charge', rng)) return;
+    pending.remainingCharges = 0;
+  }
+  const defenderSlot = pending.blockerSlot ?? (pending.target === 'character' ? pending.targetSlot : undefined);
+  if (defenderSlot !== undefined) {
+    const defender = defenderPlayer.field[defenderSlot];
+    if (defender && effectivePp(state, attacker) >= effectivePp(state, defender)) {
+      sendFieldCardToGrave(state, defenderPlayer, defenderSlot);
+      addEvent(state, 'character-destroyed', defenderPlayer.id, `${definitionFor(state, defender.cardId).name} 被战斗破坏`);
+    }
+    finish(); return;
+  }
+  if (pending.remainingDamage === undefined) {
+    pending.remainingDamage = Math.max(0, effectiveDp(state, attacker));
+    addEvent(state, 'damage', defenderPlayer.id, `${defenderPlayer.id} 受到${pending.remainingDamage}点伤害`);
+  }
+  if (pending.remainingDamage > 0) {
+    pending.remainingDamage -= 1;
+    if (revealCharge(state, defenderPlayer, 'damage-charge', rng)) return;
+    defenderPlayer.corruption += 1;
+    checkDefeat(state);
+    if (state.status !== 'finished' && pending.remainingDamage > 0) { resolveDeferredAttack(state, rng); return; }
+  }
+  finish();
+};
+
+/** Advance a server-owned public checkpoint. Clients cannot invoke this with a game command. */
+export const advanceProcessing = (state: GameState, rng: Rng): GameState => {
+  if (!state.pendingProcessing || state.status !== 'playing') return state;
+  const next = structuredClone(state);
+  const pending = next.pendingProcessing!;
+  next.pendingProcessing = null;
+  const player = next.players[pending.playerId]!;
+  const index = player.processing.findIndex((card) => card.instanceId === pending.instanceId);
+  if (index < 0) throw new Error('PROCESSING_CARD_MISSING');
+  const card = player.processing[index]!;
+  const definition = definitionFor(next, card.cardId);
+  if (pending.kind === 'tactic') {
+    next.processingCleanup = [...(next.processingCleanup ?? []), { playerId: player.id, instanceId: card.instanceId, destination: definition.signal ? 'signals' : 'graveyard' }];
+    const effects = definition.structuredEffects?.filter((effect) =>
+      (effect.trigger?.event === 'card-used' && effect.ability === 'automatic')
+      || (definition.subtype === 'instant' && effect.ability === 'instant')
+      || (!definition.signal && definition.subtype !== 'instant' && effect.ability === 'enter')) ?? [];
+    enqueueEffects(next, { controllerId: player.id, sourceInstanceId: card.instanceId }, effects);
+    continueEffectResolution(next, rng);
+    cleanupResolvedTactics(next);
+  } else {
+    if (pending.kind === 'attack-charge') {
+      if (definition.signal) {
+        next.processingCleanup = [...(next.processingCleanup ?? []), { playerId: player.id, instanceId: card.instanceId, destination: 'signals' }];
+        const attacker = player.field[next.pendingAttack!.attackerSlot];
+        if (attacker) enqueueEffects(next, { controllerId: player.id, sourceInstanceId: attacker.instanceId }, definition.structuredEffects?.filter((effect) => effect.ability === 'charge') ?? []);
+        continueEffectResolution(next, rng);
+        cleanupResolvedTactics(next);
+      } else { player.processing.splice(index, 1); player.hand.push(card); }
+      addEvent(next, 'attack-charge', player.id, `${player.id} 执行攻击充能`);
+    } else {
+      player.processing.splice(index, 1);
+      player.energy.push({ ...card, face: 'down', rested: false });
+      player.corruption += 1;
+      addEvent(next, 'damage-charge', player.id, `${player.id} 完成伤害充能，侵蚀+1`);
+      checkDefeat(next);
+    }
+    if (!next.pendingDecision && next.effectStack.length === 0 && next.status === 'playing') resolveDeferredAttack(next, rng);
+  }
+  next.version += 1;
+  if (!next.pendingProcessing && !next.pendingDecision) checkDefeat(next);
+  return next;
+};
+
 const finishTurn = (state: GameState, playerId: PlayerId): void => {
   const player = state.players[playerId]!;
   for (let index = player.energy.length - 1; index >= 0; index -= 1) {
@@ -514,26 +636,32 @@ const finishTurn = (state: GameState, playerId: PlayerId): void => {
 };
 
 export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): GameResult => {
-  if (command.expectedVersion !== state.version) return reject(state, 'STALE_VERSION', '客户端状态已过期');
   if (state.processedCommandIds.includes(command.commandId)) return reject(state, 'DUPLICATE_COMMAND', '命令已处理');
+  const independentMulligan = command.type === 'MULLIGAN' && state.phase === 'mulligan'
+    && !state.players[command.playerId]?.mulliganDone && command.expectedVersion >= 0 && command.expectedVersion <= state.version;
+  if (command.expectedVersion !== state.version && !independentMulligan) return reject(state, 'STALE_VERSION', '客户端状态已过期');
   if (state.status === 'finished') return reject(state, 'GAME_FINISHED', '对局已经结束');
+  if (state.status === 'paused') return reject(state, 'ILLEGAL_ACTION', '对局已暂停，请等待双方重连');
   if (!state.players[command.playerId]) return reject(state, 'ILLEGAL_ACTION', '玩家不在该对局中');
+  if (state.pendingProcessing && command.type !== 'CONCEDE') return reject(state, 'ILLEGAL_ACTION', '请等待处理区卡牌结算');
   if (state.pendingDecision) {
     if (command.type !== 'RESOLVE_EFFECT_DECISION') return reject(state, 'ILLEGAL_ACTION', '请先完成当前效果选择');
     const resolution = resolveEffectDecision(state, command);
     if (!resolution.accepted) return reject(state, resolution.code, resolution.message);
     const resolved = resolution.state;
     continueEffectResolution(resolved, rng);
+    cleanupResolvedTactics(resolved);
     if (resolved.pendingAttack?.stage === 'combat' && !resolved.pendingDecision && resolved.effectStack.length === 0) {
       resolveAttack(resolved, rng);
     }
+    if (!resolved.pendingProcessing && !resolved.pendingDecision) checkDefeat(resolved);
     resolved.version += 1;
     resolved.processedCommandIds.push(command.commandId);
     return {
       accepted: true,
       state: resolved,
       legalActions: getLegalActions(resolved, command.playerId),
-      emittedEvents: [],
+      emittedEvents: resolved.events.slice(state.events.length),
     };
   }
   const next = structuredClone(state);
@@ -545,6 +673,7 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
     next.winnerId = opponentId(next, command.playerId);
     addEvent(next, 'concede', command.playerId, `${command.playerId} 认输`);
   } else if (command.type === 'MULLIGAN' && next.phase === 'mulligan' && !player.mulliganDone) {
+    if (new Set(command.instanceIds).size !== command.instanceIds.length || command.instanceIds.some((id) => !player.hand.some((card) => card.instanceId === id))) return reject(state, 'ILLEGAL_ACTION', '调度只能选择自己当前的手牌');
     const selected = player.hand.filter((card) => command.instanceIds.includes(card.instanceId));
     player.hand = player.hand.filter((card) => !command.instanceIds.includes(card.instanceId));
     for (let i = 0; i < selected.length; i += 1) drawOne(next, player, rng);
@@ -596,7 +725,11 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
     pay(player, payment);
     player.hand.splice(index, 1);
     card.face = 'up';
-    if (evolutionSlot !== undefined) {
+    if (next.processingMode === 'deferred' && definition.type === 'tactic') {
+      player.processing.push(card);
+      next.pendingProcessing = { kind: 'tactic', playerId: player.id, instanceId: card.instanceId };
+      addEvent(next, 'processing-revealed', player.id, `${player.id} 将《${definition.name}》放入处理区`);
+    } else if (evolutionSlot !== undefined) {
       const target = player.field[evolutionSlot]!;
       player.field[evolutionSlot] = {
         ...card,
@@ -623,8 +756,10 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
       (effect.trigger?.event === 'card-used' && effect.ability === 'automatic')
       || (definition.subtype === 'instant' && effect.ability === 'instant')
       || (!definition.signal && definition.subtype !== 'instant' && effect.ability === 'enter')) ?? [];
-    enqueueEffects(next, { controllerId: player.id, sourceInstanceId: card.instanceId }, triggeredEffects);
-    continueEffectResolution(next, rng);
+    if (!next.pendingProcessing) {
+      enqueueEffects(next, { controllerId: player.id, sourceInstanceId: card.instanceId }, triggeredEffects);
+      continueEffectResolution(next, rng);
+    }
     addEvent(next, 'play-card', player.id, `${player.id} 使用了《${definition.name}》`);
     if (next.pendingAttack) {
       next.pendingAttack.priorityPlayerId = opponentId(next, command.playerId);
@@ -710,7 +845,7 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
 
   next.version += 1;
   next.processedCommandIds.push(command.commandId);
-  checkDefeat(next);
+  if (!next.pendingProcessing && !next.pendingDecision) checkDefeat(next);
   return {
     accepted: true,
     state: next,

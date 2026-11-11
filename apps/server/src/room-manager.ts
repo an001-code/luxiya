@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { cardDefinitions, developmentDeck } from '@pgr/cards';
-import { applyCommand, createGame, createPlayerView, type Rng } from '@pgr/game-core';
+import { advanceProcessing, applyCommand, createGame, createPlayerView, type Rng } from '@pgr/game-core';
 import type { CardDefinition, DeckDefinition, GameCommand, GameState, RoomCredentials, RoomSnapshot } from '@pgr/protocol';
 
 export interface MatchSeatConfig {
@@ -117,6 +117,7 @@ export class RoomManager {
         definitions,
         this.rng,
       );
+      room.game.processingMode = 'deferred';
     }
   }
 
@@ -136,6 +137,13 @@ export class RoomManager {
     return this.applyCommand(credentials, {
       type: 'CONCEDE', commandId: randomUUID(), playerId: credentials.playerId, expectedVersion: room.game.version,
     });
+  }
+
+  advanceProcessing(code: string): boolean {
+    const room = this.rooms.get(code);
+    if (!room?.game?.pendingProcessing || room.game.status !== 'playing') return false;
+    room.game = advanceProcessing(room.game, this.rng);
+    return true;
   }
 
   markDisconnected(credentials: RoomCredentials): void {

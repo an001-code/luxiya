@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getCardDefinition } from '@pgr/cards';
 import type { CardInstance, LegalAction, PlayerBoardView, PlayerView, PublicCardView } from '@pgr/protocol';
+import { BattleCardArt } from './BattleCardArt.js';
+import { BattleDialog } from './BattleDialog.js';
+import { BattleMotion } from './BattleMotion.js';
 
 interface BattlefieldProps {
   view: PlayerView;
@@ -21,7 +24,7 @@ function MiniCard({ card, selected, legal, onClick }: { card: ViewCard; selected
   return (
     <button data-card-view={card.instanceId} className={`mini-card ${selected ? 'selected' : ''} ${legal ? 'legal' : ''} ${card.rested ? 'rested' : ''}`} onClick={onClick} disabled={!onClick} title={cardName(card)}>
       <span className="card-cost">{definition?.cost ?? '?'}</span>
-      <span className="card-art">{definition ? definition.name.slice(0, 1) : '◆'}</span>
+      <span className="card-art"><BattleCardArt key={card.cardId} cardId={card.cardId} /></span>
       <strong>{definition?.name ?? '隐藏卡牌'}</strong>
       {definition?.type === 'character' && <small>PP {displayedPp} · DP {displayedDp}</small>}
     </button>
@@ -47,7 +50,7 @@ function ResourcePanel({ board, side, onView, onPayment, paymentIds, onEliminate
           const signal = definition?.signal ?? null;
           return card ? (
             <button data-card-view={card.instanceId} className={`signal-slot ${signal ?? ''}`} key={card.instanceId} data-signal-slot={index} onClick={() => onView(card)} title={cardName(card)}>
-              <span className="resource-card-cost">{definition?.cost ?? '?'}</span><b className="resource-card-art">{definition?.name.slice(0, 1) ?? '◆'}</b><strong>{definition?.name ?? '隐藏卡牌'}</strong><small>{index + 1}</small>
+              <span className="resource-card-cost">{definition?.cost ?? '?'}</span><b className="resource-card-art"><BattleCardArt key={card.cardId} cardId={card.cardId} /></b><strong>{definition?.name ?? '隐藏卡牌'}</strong><small>{index + 1}</small>
             </button>
           ) : <div className="signal-slot empty" key={index} data-signal-slot={index}><small>{index + 1}</small></div>;
         })}
@@ -60,7 +63,7 @@ function ResourcePanel({ board, side, onView, onPayment, paymentIds, onEliminate
           if (!card) return <div className="energy-slot empty" key={index} data-energy-slot={index}><span>+</span></div>;
           const selectable = Boolean(onPayment && !card.rested);
           const definition = card.cardId ? getCardDefinition(card.cardId) : null;
-          return <button data-card-view={card.instanceId} className={`energy-slot ${card.rested ? 'rested' : ''} ${card.face === 'down' ? 'facedown' : ''} ${selectable ? 'pay-selectable' : ''} ${paymentIds.has(card.instanceId) ? 'payment-selected' : ''}`} key={card.instanceId} data-energy-slot={index} onClick={() => { onView(card); onPayment?.(card); }} title={cardName(card)}><span className="resource-card-cost">{definition?.cost ?? '?'}</span><b className="resource-card-art">{definition?.name.slice(0, 1) ?? '◆'}</b><strong>{definition?.attribute.slice(0, 2) ?? '暗费'}</strong>{paymentIds.has(card.instanceId) && <span className="payment-mark">支付</span>}</button>;
+          return <button data-card-view={card.instanceId} className={`energy-slot ${card.rested ? 'rested' : ''} ${card.face === 'down' ? 'facedown' : ''} ${selectable ? 'pay-selectable' : ''} ${paymentIds.has(card.instanceId) ? 'payment-selected' : ''}`} key={card.instanceId} data-energy-slot={index} onClick={() => { onView(card); onPayment?.(card); }} title={cardName(card)}><span className="resource-card-cost">{definition?.cost ?? '?'}</span><b className="resource-card-art"><BattleCardArt key={card.cardId} cardId={card.cardId} /></b><strong>{definition?.attribute.slice(0, 2) ?? '暗费'}</strong>{paymentIds.has(card.instanceId) && <span className="payment-mark">支付</span>}</button>;
         })}
       </div>
     </section>
@@ -93,7 +96,7 @@ function FieldRow({ board, side, selectedId, onCard, getAction, onAction }: {
 
 function ProcessingZone({ board, side, selectedId, onCard }: { board: PlayerBoardView; side: 'opponent' | 'self'; selectedId: string | null; onCard: (card: PublicCardView) => void }) {
   const title = side === 'self' ? '我方处理区' : '对手处理区';
-  return <section className={`processing-zone ${side}`} data-processing-zone={side}><header><span>{title}</span><b>{board.processing.length}</b></header><div className="processing-cards">{board.processing.length > 0 ? board.processing.map((card) => <MiniCard key={card.instanceId} card={card} selected={selectedId === card.instanceId} onClick={() => onCard(card)} />) : <p>等待效果进入处理</p>}</div></section>;
+  return <section className={`processing-zone ${side}`} data-processing-zone={side}><header><span>{title}</span><b>{board.processing.length}</b></header><div className="processing-cards">{board.processing.length > 0 ? board.processing.map((card) => <div className="processing-card-wrap" key={card.instanceId}><MiniCard card={card} selected={selectedId === card.instanceId} onClick={() => onCard(card)} /></div>) : <p>暂无处理中的卡牌</p>}</div></section>;
 }
 
 const collectVisibleCards = (view: PlayerView): ViewCard[] => {
@@ -108,8 +111,10 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
   const [mulliganIds, setMulliganIds] = useState<string[]>([]);
   const [decisionSelectionIds, setDecisionSelectionIds] = useState<string[]>([]);
   const [tab, setTab] = useState<'detail' | 'log' | 'grave'>('detail');
+  const [openingSubmitted, setOpeningSubmitted] = useState(false);
   const hand = view.self.hand as CardInstance[];
-  const selected = useMemo(() => collectVisibleCards(view).find((card) => card.instanceId === detailCardId) ?? null, [detailCardId, view]);
+  const selected = useMemo(() => collectVisibleCards(view).find((card) => card.instanceId === detailCardId)
+    ?? (() => { const option = view.pendingDecision?.options.find((option) => option.instanceId === detailCardId); return option?.cardId ? { instanceId: option.instanceId!, cardId: option.cardId, face: 'up' as const, rested: false } : null; })(), [detailCardId, view]);
   const actionCard = hand.find((card) => card.instanceId === actionCardId) ?? null;
   const actionDefinition = actionCard ? getCardDefinition(actionCard.cardId) : null;
   const playableIds = new Set(view.legalActions.filter((action): action is Extract<LegalAction, { type: 'PLAY_CARD' }> => action.type === 'PLAY_CARD').map((action) => action.instanceId));
@@ -126,6 +131,7 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
   useEffect(() => {
     setDecisionSelectionIds([]);
   }, [view.pendingDecision?.id]);
+  useEffect(() => { setOpeningSubmitted(false); }, [view.gameId]);
 
   const viewCard = (card: ViewCard) => { setDetailCardId(card.instanceId); setTab('detail'); };
   const chooseHandCard = (card: CardInstance) => {
@@ -147,10 +153,10 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
   };
 
   const primaryAction = () => {
-    if (view.phase === 'mulligan') onCommand({ type: 'MULLIGAN', instanceIds: mulliganIds });
+    if (view.phase === 'mulligan') { onCommand({ type: 'MULLIGAN', instanceIds: mulliganIds }); setOpeningSubmitted(true); }
     else if (view.pendingAttack || view.priorityWindow) onCommand({ type: 'PASS_RESPONSE' });
     else if (view.phase === 'upright' || view.phase === 'draw') onCommand({ type: 'ADVANCE_PHASE' });
-    else if (view.phase === 'energy') onCommand(actionCardId ? { type: 'SET_ENERGY', instanceId: actionCardId } : { type: 'SET_ENERGY' });
+    else if (view.phase === 'energy') { onCommand(actionCardId ? { type: 'SET_ENERGY', instanceId: actionCardId } : { type: 'SET_ENERGY' }); setActionCardId(null); }
     else if (view.phase === 'main') onCommand({ type: 'END_PHASE' });
   };
 
@@ -184,13 +190,9 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
       return;
     }
     if (!instanceId) return;
-    if (decision.max === 1) {
-      onCommand({ type: 'RESOLVE_EFFECT_DECISION', decisionId: decision.id, selectedInstanceIds: [instanceId] });
-      return;
-    }
     setDecisionSelectionIds((ids) => ids.includes(instanceId)
       ? ids.filter((id) => id !== instanceId)
-      : ids.length < decision.max ? [...ids, instanceId] : ids);
+      : decision.max === 1 ? [instanceId] : ids.length < decision.max ? [...ids, instanceId] : ids);
   };
   const confirmDecision = () => {
     const decision = view.pendingDecision;
@@ -198,9 +200,14 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
     onCommand({ type: 'RESOLVE_EFFECT_DECISION', decisionId: decision.id, selectedInstanceIds: decisionSelectionIds });
   };
 
+  const showOpening = view.phase === 'mulligan' && !openingSubmitted && view.legalActions.some((action) => action.type === 'MULLIGAN');
+  const showEnergy = view.phase === 'energy' && view.legalActions.some((action) => action.type === 'SET_ENERGY');
+  const preview = selected?.cardId ? <aside className="dialog-card-preview"><div><BattleCardArt key={selected.cardId} cardId={selected.cardId} /></div><h3>{cardName(selected)}</h3>{getCardDefinition(selected.cardId).text.map((line, index) => <p key={index}>{line}</p>)}</aside> : <aside className="dialog-card-preview"><p>点击卡牌可查看完整效果。</p></aside>;
+
   return (
     <main className="battlefield-shell">
       <div className="arena-backdrop" aria-hidden="true"><i /><b /></div>
+      <BattleMotion view={view} />
       {view.status === 'finished' && <div className="result-overlay"><section><small>对局结束</small><h1>{view.winnerId === view.viewerId ? '胜利' : view.winnerId ? '败北' : '平局'}</h1><p>本局记录已保留在右侧回合记录中。</p></section></div>}
       <aside className="resource-rail"><ResourcePanel board={view.opponent} side="opponent" onView={viewCard} paymentIds={new Set()} /><ResourcePanel board={view.self} side="self" onView={viewCard} paymentIds={paymentSet} {...(paymentActive ? { onPayment: togglePayment } : {})} {...(eliminateAction ? { onEliminate: () => onCommand(eliminateAction) } : {})} /></aside>
       <section className="battle-center">
@@ -210,20 +217,8 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
         <section className="processing-console">
           <ProcessingZone board={view.opponent} side="opponent" selectedId={detailCardId} onCard={viewCard} />
           <section className="action-console">
-            <div className="phase-status"><small>第 {view.turn} 回合</small><strong>{isMine ? '我方行动' : '对手行动'} · {phaseNames[view.phase]}</strong></div>
-            <div className="action-readout"><span>{view.pendingAttack ? '攻击响应窗口' : '当前行动：等待指令'}</span><b>{view.pendingAttack ? '响应堆栈 1' : '响应堆栈 0'}</b></div>
-            {view.pendingDecision && <section className="effect-decision" data-effect-decision={view.pendingDecision.id}>
-              <strong>{view.pendingDecision.prompt}</strong>
-              <small>请选择 {view.pendingDecision.min}-{view.pendingDecision.max} 项</small>
-              <div className="decision-options">{view.pendingDecision.options.map((option) => <button
-                key={option.id}
-                data-decision-option={option.id}
-                className={option.instanceId && decisionSelectionIds.includes(option.instanceId) ? 'selected' : ''}
-                onClick={() => chooseDecisionOption(option.id, option.instanceId)}
-              >{option.label}</button>)}</div>
-              {view.pendingDecision.max > 1 && <button className="confirm-decision" onClick={confirmDecision} disabled={decisionSelectionIds.length < view.pendingDecision.min || decisionSelectionIds.length > view.pendingDecision.max}>确认选择</button>}
-            </section>}
-            <button className="primary-action" onClick={primaryAction} disabled={!view.legalActions.some((action) => ['MULLIGAN', 'PASS_RESPONSE', 'ADVANCE_PHASE', 'SET_ENERGY', 'END_PHASE'].includes(action.type))}>{actionLabel}</button>
+            <div className="phase-status"><small>第 {view.turn} 回合</small><strong>{phaseNames[view.phase]}</strong><span>{view.phase === 'mulligan' ? view.opening?.selfDone || openingSubmitted ? '我方已确认' : '双方同时调度' : isMine ? '我方行动' : '对手行动'}</span>{view.processingPending && <em>卡牌公开中</em>}{view.pendingAttack && <em>攻击响应窗口</em>}</div>
+            {!showOpening && !showEnergy && !view.pendingDecision && !paymentActive && view.phase !== 'mulligan' && <button className="primary-action" onClick={primaryAction} disabled={!view.legalActions.some((action) => ['PASS_RESPONSE', 'ADVANCE_PHASE', 'SET_ENERGY', 'END_PHASE'].includes(action.type))}>{actionLabel}</button>}
           </section>
           <ProcessingZone board={view.self} side="self" selectedId={detailCardId} onCard={viewCard} />
         </section>
@@ -234,16 +229,31 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
           <div className="hand-cards">
             {hand.map((card) => <MiniCard key={card.instanceId} card={card} selected={view.phase === 'mulligan' ? mulliganIds.includes(card.instanceId) : actionCardId === card.instanceId} legal={playableIds.has(card.instanceId)} onClick={() => chooseHandCard(card)} />)}
           </div>
-          {actionCardId && playableIds.has(actionCardId) && actionDefinition && <div className="play-controls">{actionDefinition.cost > 0 && <small className={paymentValid ? 'valid' : ''}>选择费用 {paymentIds.length}/{actionDefinition.cost}{actionDefinition.attribute !== 'none' ? ` · ${actionDefinition.attribute}` : ''}</small>}<button className="play-card" onClick={playSelectedCard} disabled={!paymentValid}>{actionDefinition.cost > 0 ? '支付并使用' : '使用卡牌'}</button></div>}
+          {actionCardId && playableIds.has(actionCardId) && actionDefinition && !paymentActive && <div className="play-controls"><button className="play-card" onClick={playSelectedCard} disabled={!paymentValid}>使用卡牌</button></div>}
         </div>
       </section>
+      {showOpening && <BattleDialog title="起手调度"><p className="battle-dialog-hint">选择要替换的手牌，也可以全部保留。双方可同时操作，全部确认后开始回合。</p><div className="battle-dialog-body"><div className="dialog-card-grid">{hand.map((card) => <MiniCard key={card.instanceId} card={card} selected={mulliganIds.includes(card.instanceId)} onClick={() => chooseHandCard(card)} />)}</div>{preview}</div><footer><button className="primary-action" onClick={primaryAction}>确认调度 ({mulliganIds.length})</button></footer></BattleDialog>}
+      {showEnergy && <BattleDialog title="选择费用填充"><p className="battle-dialog-hint">选择一张手牌放入费用区，或跳过本次填充。</p><div className="battle-dialog-body"><div className="dialog-card-grid">{hand.map((card) => <MiniCard key={card.instanceId} card={card} selected={actionCardId === card.instanceId} onClick={() => chooseHandCard(card)} />)}</div>{preview}</div><footer><button onClick={() => { onCommand({ type: 'SET_ENERGY' }); setActionCardId(null); }}>跳过填充</button><button className="primary-action" disabled={!actionCardId || view.self.energy.length >= 10} onClick={primaryAction}>放置为费用</button></footer></BattleDialog>}
+      {paymentActive && !showEnergy && !view.pendingDecision && <BattleDialog title="选择支付费用" onClose={() => { setActionCardId(null); setPaymentIds([]); }}><p className="battle-dialog-hint">使用《{actionDefinition?.name}》：选择 {actionDefinition?.cost} 张费用，其中至少一张明费属性须符合卡牌要求。已选 {paymentIds.length} 张。</p><div className="battle-dialog-body"><div className="dialog-card-grid">{view.self.energy.map((card) => <MiniCard key={card.instanceId} card={card} selected={paymentIds.includes(card.instanceId)} legal={!card.rested} onClick={() => { viewCard(card); togglePayment(card); }} />)}</div>{preview}</div><footer><button className="primary-action" onClick={playSelectedCard} disabled={!paymentValid}>支付并使用</button></footer></BattleDialog>}
+      {view.pendingDecision && <BattleDialog title={view.pendingDecision.prompt}><section className="effect-decision" data-effect-decision={view.pendingDecision.id}>
+              <strong>{view.pendingDecision.prompt}</strong>
+              <small>{view.pendingDecision.kind === 'order-cards' ? '按需要的顺序依次点击卡牌；再次点击可以取消。' : `请选择 ${view.pendingDecision.min}-${Math.min(view.pendingDecision.max, view.pendingDecision.options.length)} 项`}</small>
+              <div className="decision-options">{view.pendingDecision.options.map((option) => <button
+                key={option.id}
+                data-decision-option={option.id}
+                className={option.instanceId && decisionSelectionIds.includes(option.instanceId) ? 'selected' : ''}
+                onClick={() => { if (option.instanceId && option.cardId) setDetailCardId(option.instanceId); chooseDecisionOption(option.id, option.instanceId); }}
+              >{option.cardId && <span className="decision-card-art"><BattleCardArt key={option.cardId} cardId={option.cardId} /></span>}<span>{option.label}</span>{option.instanceId && decisionSelectionIds.includes(option.instanceId) && <b>{decisionSelectionIds.indexOf(option.instanceId) + 1}</b>}</button>)}</div>
+              {selected?.cardId && <details className="decision-card-rules"><summary>查看《{cardName(selected)}》的完整效果</summary>{getCardDefinition(selected.cardId).text.map((line, index) => <p key={index}>{line}</p>)}</details>}
+              {view.pendingDecision.kind !== 'choose-option' && <button className="confirm-decision" onClick={confirmDecision} disabled={decisionSelectionIds.length < view.pendingDecision.min || decisionSelectionIds.length > view.pendingDecision.max}>{view.pendingDecision.min === 0 && decisionSelectionIds.length === 0 ? '不选择，继续结算' : '确认选择'}</button>}
+            </section></BattleDialog>}
       <aside className="inspector">
         <nav>
           <button className={tab === 'detail' ? 'active' : ''} onClick={() => setTab('detail')}>卡牌详情</button>
           <button className={tab === 'log' ? 'active' : ''} onClick={() => setTab('log')}>回合记录</button>
           <button className={tab === 'grave' ? 'active' : ''} onClick={() => setTab('grave')}>墓地</button>
         </nav>
-        {tab === 'detail' && <div className="detail-panel">{selected?.cardId ? <><div className="detail-art">{cardName(selected).slice(0, 1)}</div><h2>{cardName(selected)}</h2><div className="tags"><span>费用 {getCardDefinition(selected.cardId).cost}</span><span>{getCardDefinition(selected.cardId).attribute}</span></div>{getCardDefinition(selected.cardId).text.map((line) => <p key={line}>{line}</p>)}</> : selected ? <div className="hidden-card-detail"><div className="detail-art">◆</div><h2>隐藏费用牌</h2><p>这张暗费的牌面信息对你不可见。</p></div> : <p className="empty-copy">选择一张卡牌查看详情</p>}</div>}
+        {tab === 'detail' && <div className="detail-panel">{selected?.cardId ? <><div className="detail-art"><BattleCardArt key={selected.cardId} cardId={selected.cardId} /></div><h2>{cardName(selected)}</h2><div className="tags"><span>费用 {getCardDefinition(selected.cardId).cost}</span><span>{getCardDefinition(selected.cardId).attribute}</span></div>{getCardDefinition(selected.cardId).text.map((line) => <p key={line}>{line}</p>)}</> : selected ? <div className="hidden-card-detail"><div className="detail-art">◆</div><h2>隐藏费用牌</h2><p>这张暗费的牌面信息对你不可见。</p></div> : <p className="empty-copy">选择一张卡牌查看详情</p>}</div>}
         {tab === 'log' && <ol className="turn-log">{[...view.events].reverse().map((event) => <li key={event.id}><small>回合 {event.createdAtTurn}</small><p>{event.message}</p></li>)}</ol>}
         {tab === 'grave' && <div className="grave-tabs"><h3>我方墓地 · {view.self.graveyard.length}</h3>{view.self.graveyard.map((card) => <button data-card-view={card.instanceId} key={card.instanceId} onClick={() => viewCard(card)}>{cardName(card)}</button>)}<h3>对手墓地 · {view.opponent.graveyard.length}</h3>{view.opponent.graveyard.map((card) => <button data-card-view={card.instanceId} key={card.instanceId} onClick={() => viewCard(card)}>{cardName(card)}</button>)}</div>}
         <button className="concede" onClick={() => onCommand({ type: 'CONCEDE' })}>认输</button>

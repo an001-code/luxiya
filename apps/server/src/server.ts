@@ -86,6 +86,7 @@ export const buildServer = (options: BuildServerOptions = {}) => {
     },
   });
 
+  const processingTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const emitRoom = (code: string): void => {
     const room = manager.rooms.get(code);
     if (!room) return;
@@ -96,6 +97,14 @@ export const buildServer = (options: BuildServerOptions = {}) => {
         socket.emit('room:snapshot', snapshot);
         if (snapshot.game) socket.emit('game:snapshot', snapshot.game);
       }
+    }
+    if (room.game?.pendingProcessing && room.game.status === 'playing' && !processingTimers.has(code)) {
+      const timer = setTimeout(() => {
+        processingTimers.delete(code);
+        if (manager.advanceProcessing(code)) emitRoom(code);
+      }, 1100);
+      timer.unref();
+      processingTimers.set(code, timer);
     }
   };
 
@@ -142,7 +151,7 @@ export const buildServer = (options: BuildServerOptions = {}) => {
 
   const expirationTimer = setInterval(() => manager.expireDisconnectedRooms(), 30_000);
   expirationTimer.unref();
-  app.addHook('onClose', async () => { clearInterval(expirationTimer); io.close(); await repository.close(); });
+  app.addHook('onClose', async () => { clearInterval(expirationTimer); for (const timer of processingTimers.values()) clearTimeout(timer); io.close(); await repository.close(); });
   return app;
 };
 

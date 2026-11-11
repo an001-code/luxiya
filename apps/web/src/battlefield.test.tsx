@@ -45,6 +45,9 @@ describe('Battlefield', () => {
     }} onCommand={() => undefined} />);
 
     expect(html.match(/data-card-view=/g)).toHaveLength(5);
+    expect(html).toContain('/api/cards/BP01-079/image');
+    expect(html).toContain('/api/cards/ST01-005/image');
+    expect(html).not.toContain('等待指令');
     expect(html).not.toContain('data-opponent-hand-card');
   });
 
@@ -81,5 +84,6 @@ describe('effect decision panel', () => {
     expect(html).toContain('data-effect-decision="decision-1"');
     expect(html).toContain('data-decision-option="target-1"');
     expect(html).toContain('Choose one character');
+    expect(html).toContain('role="dialog"');
   });
 });

@@ -30,6 +30,7 @@ describe('RoomManager', () => {
     expect(hostView.game?.self.id).toBe(host.playerId);
     expect(guestView.game?.self.id).toBe(guest.playerId);
     expect(hostView.game?.opponent.hand).toEqual({ count: 4 });
+    expect(manager.rooms.get(host.code)?.game?.processingMode).toBe('deferred');
   });
 
   test('resumes a seat with the original token and expires disconnected rooms after ten minutes', () => {

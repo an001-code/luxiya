@@ -53,6 +53,8 @@ export interface CardInstance {
 }
 
 export interface PendingAttack {
+  remainingCharges?: number;
+  remainingDamage?: number;
   attackerSlot: number;
   target: 'player' | 'character';
   targetSlot?: number;
@@ -152,6 +154,9 @@ export interface GameEvent {
 }
 
 export interface GameState {
+  processingMode?: 'deferred';
+  pendingProcessing?: { kind: 'tactic' | 'attack-charge' | 'damage-charge'; playerId: PlayerId; instanceId: string } | null;
+  processingCleanup?: Array<{ playerId: PlayerId; instanceId: string; destination: 'signals' | 'graveyard' }>;
   id: string;
   version: number;
   cardDefinitions: Record<string, CardDefinition>;
@@ -235,6 +240,8 @@ export interface PlayerBoardView {
 }
 
 export interface PlayerView {
+  opening?: { selfDone: boolean; opponentDone: boolean };
+  processingPending?: boolean;
   gameId: string;
   version: number;
   status: GameState['status'];
