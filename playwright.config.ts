@@ -7,6 +7,8 @@ if (existsSync('.env')) loadEnvFile('.env');
 export default defineConfig({
   testDir: './tests/e2e',
   testIgnore: '**/two-player.spec.ts',
+  // Real-room scenarios share a seeded server; keep their room creation order stable.
+  workers: 1,
   timeout: 300_000,
   use: { baseURL: 'http://127.0.0.1:5184', headless: true, channel: 'msedge' },
   webServer: [

@@ -19,7 +19,7 @@ describe('ST01-001 evolution and abilities', () => {
     state.phase = 'main';
     player.field[0] = { ...card('lucia-base', 'ST01-004'), enteredTurn: 0 };
     player.hand = [card('evolution', 'ST01-001'), card('discard-cost', 'DEV-001')];
-    player.energy = energy(2);
+    player.energy = energy(5).map((entry, index) => ({ ...entry, rested: index >= 2 }));
     player.deck = [
       { ...card('search-hit', 'ST01-004'), face: 'down' },
       { ...card('bottom-1', 'DEV-005'), face: 'down' },
@@ -30,7 +30,7 @@ describe('ST01-001 evolution and abilities', () => {
     ];
     const evolved = applyCommand(state, {
       type: 'PLAY_CARD', commandId: 'evolve-lucia', playerId, expectedVersion: state.version,
-      instanceId: 'evolution', evolutionTargetSlot: 0, paymentIds: player.energy.map((entry) => entry.instanceId),
+      instanceId: 'evolution', evolutionTargetSlot: 0, paymentIds: player.energy.filter((entry) => !entry.rested).map((entry) => entry.instanceId),
     }, sequenceRng([0.1]));
     expect(evolved.state.players[playerId]!.field[0]).toMatchObject({ cardId: 'ST01-001', evolved: true });
     expect(evolved.state.players[playerId]!.field[0]?.underneath?.map((entry) => entry.instanceId)).toEqual(['lucia-base']);

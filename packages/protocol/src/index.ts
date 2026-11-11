@@ -242,6 +242,7 @@ export interface PlayerBoardView {
 }
 
 export interface PlayerView {
+  evolutionChecks?: Record<string, { supported: boolean; available: boolean; energyCount: number; targetSlots: number[]; paymentCost: number; reason: string }>;
   drawConfirmation?: { count: number; cards: PublicCardView[] };
   opening?: { selfDone: boolean; opponentDone: boolean };
   processingPending?: boolean;

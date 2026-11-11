@@ -195,13 +195,28 @@ const effectiveDp = (state: GameState, card: CardInstance): number => effectiveS
   conditionalFloatingDp(state, controllingPlayer(state, card) ?? state.players[state.activePlayerId]!, card.cardId, definitionFor(state, card.cardId).dp ?? 0)
   + (card.temporaryDp ?? 0));
 
+const supportsEvolution = (definition: CardDefinition): boolean => definition.structuredEffects?.some((effect) => effect.sourceEffectId === 'evolve_lucia'
+  || effect.actions.some((action) => action.kind === 'custom' && action.customHandlerId === 'evolve_lucia')) ?? false;
+
 const evolutionTargetSlots = (state: GameState, player: PlayerState, cardId: string): number[] => {
-  if (!definitionFor(state, cardId).structuredEffects?.some((effect) => effect.sourceEffectId === 'evolve_lucia')) return [];
+  if (!supportsEvolution(definitionFor(state, cardId)) || player.energy.length < 5) return [];
   return player.field.flatMap((card, slot) => {
     if (!card) return [];
     const definition = definitionFor(state, card.cardId);
-    return definition.type === 'character' && definition.cost <= 4 && definition.traits.includes('露西亚') ? [slot] : [];
+    return definition.type === 'character' && definition.cost <= 5 && definition.traits.includes('露西亚') ? [slot] : [];
   });
+};
+
+const evolutionCheck = (state: GameState, player: PlayerState, card: CardInstance): NonNullable<PlayerView['evolutionChecks']>[string] => {
+  const supported = supportsEvolution(definitionFor(state, card.cardId));
+  const targetSlots = evolutionTargetSlots(state, player, card.cardId);
+  const affordable = canPay(state, player, card.cardId, 2);
+  const reason = !supported ? '当前对局中的这张卡未配置升变能力'
+    : player.energy.length < 5 ? `费用区需要至少5张费用牌，当前为${player.energy.length}张`
+    : !targetSlots.length ? '战场需要费用5以下、具有〈露西亚〉特征的角色'
+    : !affordable ? '需要2张未横置费用，并满足该卡的明费属性条件'
+    : '满足条件：可支付2费，选择对象升变';
+  return { supported, available: supported && player.energy.length >= 5 && targetSlots.length > 0 && affordable, energyCount: player.energy.length, targetSlots, paymentCost: 2, reason };
 };
 
 export const getLegalActions = (state: GameState, playerId: string): LegalAction[] => {
@@ -335,6 +350,7 @@ export const createPlayerView = (state: GameState, playerId: PlayerId): PlayerVi
     : null;
   return {
     gameId: state.id,
+    evolutionChecks: Object.fromEntries(self.hand.map((card) => [card.instanceId, evolutionCheck(state, self, card)])),
     opening: { selfDone: self.mulliganDone, opponentDone: opponent.mulliganDone },
     processingPending: Boolean(state.pendingProcessing),
     ...(state.status !== 'finished' && state.pendingDraw?.playerId === playerId ? { drawConfirmation: { count: state.pendingDraw.count, cards: state.pendingDraw.instanceIds.flatMap((id) => { const card = self.hand.find((entry) => entry.instanceId === id); return card ? [publicCard(state, card)] : []; }) } } : {}),

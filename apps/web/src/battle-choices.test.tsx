@@ -11,6 +11,27 @@ const board = (id: string): PlayerBoardView => ({ id, hand: [], deck: { count: 4
 const view: PlayerView = { gameId: 'choices', version: 1, status: 'playing', viewerId: 'p1', activePlayerId: 'p1', self: board('p1'), opponent: board('p2'), phase: 'main', turn: 3, pendingAttack: null, pendingDecision: null, priorityWindow: null, winnerId: null, legalActions: [], events: [] };
 
 describe('explicit battle choices', () => {
+  it('shows an explicit evolution mode for the screenshot case with normal options and an A1 target', async () => {
+    const user = userEvent.setup(); const command = vi.fn();
+    render(<PlayCardDialog card={card('screenshot-evolve', 'ST01-001')} choices={[
+      ...[1, 2, 3, 4].map((fieldSlot) => ({ type: 'PLAY_CARD' as const, instanceId: 'screenshot-evolve', fieldSlot, paymentCost: 5 })),
+      { type: 'PLAY_CARD', instanceId: 'screenshot-evolve', evolutionTargetSlot: 0, paymentCost: 2 },
+    ]} energy={Array.from({ length: 5 }, (_, index) => card(`screenshot-fee-${index}`))} field={[card('screenshot-base', 'ST01-004'), null, null, null, null]} onCommand={command} onClose={() => undefined} onView={() => undefined} />);
+    await user.click(screen.getByRole('button', { name: '升变召唤 · 费用 2' }));
+    expect(screen.getByText('已选择：升变 A1 · 露西亚·红莲 · 费用 2')).toBeTruthy();
+    const fees = screen.getAllByTitle('测试构造体·物理');
+    await user.click(fees[0]!); await user.click(fees[1]!);
+    await user.click(screen.getByRole('button', { name: '确认升变' }));
+    expect(command).toHaveBeenCalledWith({ type: 'PLAY_CARD', instanceId: 'screenshot-evolve', evolutionTargetSlot: 0, paymentIds: ['screenshot-fee-0', 'screenshot-fee-1'] });
+  });
+  it('explains the missing evolution mode using the authoritative check', () => {
+    render(<PlayCardDialog card={card('blocked-evolve', 'ST01-001')} choices={[{ type: 'PLAY_CARD', instanceId: 'blocked-evolve', fieldSlot: 0, paymentCost: 5 }]}
+      energy={Array.from({ length: 5 }, (_, index) => card(`blocked-fee-${index}`))} field={view.self.field}
+      evolutionCheck={{ supported: true, available: false, energyCount: 5, targetSlots: [], paymentCost: 2, reason: '战场需要费用5以下、具有〈露西亚〉特征的角色' }}
+      onCommand={() => undefined} onClose={() => undefined} onView={() => undefined} />);
+    expect(screen.getByRole('button', { name: '升变召唤 · 费用 2' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByText('战场需要费用5以下、具有〈露西亚〉特征的角色')).toBeTruthy();
+  });
   it('selects an evolution target and pays the actual two-energy cost', async () => {
     const user = userEvent.setup(); const command = vi.fn();
     render(<PlayCardDialog card={card('evolve', 'ST01-001')} choices={[{ type: 'PLAY_CARD', instanceId: 'evolve', evolutionTargetSlot: 3, paymentCost: 2 }]}

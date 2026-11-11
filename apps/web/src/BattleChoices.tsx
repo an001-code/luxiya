@@ -9,11 +9,16 @@ export type PlayAction = Extract<LegalAction, { type: 'PLAY_CARD' }>;
 type AttackAction = Extract<LegalAction, { type: 'DECLARE_ATTACK' }>;
 const playKey = (action: PlayAction) => JSON.stringify([action.instanceId, action.fieldSlot, action.targetSlot, action.evolutionTargetSlot, action.discountSignalIds]);
 
-export function PlayCardDialog({ card, choices, energy, field, onCommand, onClose, onView }: {
+export function PlayCardDialog({ card, choices, energy, field, evolutionCheck, onCommand, onClose, onView }: {
   card: CardInstance; choices: PlayAction[]; energy: PublicCardView[]; field: (PublicCardView | null)[];
+  evolutionCheck?: NonNullable<PlayerView['evolutionChecks']>[string] | undefined;
   onCommand: (action: PlayAction) => void; onClose: () => void; onView: (card: ViewCard) => void;
 }) {
   const definition = getCardDefinition(card.cardId);
+  const evolutionChoices = choices.filter((choice) => choice.evolutionTargetSlot !== undefined);
+  const normalChoices = choices.filter((choice) => choice.evolutionTargetSlot === undefined);
+  const supportsEvolution = evolutionCheck?.supported || evolutionChoices.length > 0 || definition.structuredEffects?.some((effect) => effect.sourceEffectId === 'evolve_lucia' || effect.actions.some((action) => action.kind === 'custom' && action.customHandlerId === 'evolve_lucia'));
+  const [mode, setMode] = useState<'normal' | 'evolution'>(() => !normalChoices.length && evolutionChoices.length ? 'evolution' : 'normal');
   const [choiceKey, setChoiceKey] = useState(() => {
     const simple = choices.find((choice) => choice.fieldSlot === undefined && choice.targetSlot === undefined && choice.evolutionTargetSlot === undefined);
     return simple ? playKey(simple) : definition.type === 'tactic' && choices.length === 1 ? playKey(choices[0]!) : '';
@@ -41,7 +46,8 @@ export function PlayCardDialog({ card, choices, energy, field, onCommand, onClos
   };
   return <BattleDialog title={`使用《${definition.name}》`} onClose={onClose}>
     <p className="battle-dialog-hint">{attributeLabels[definition.attribute]} · {cardTypeLabel(definition)}。先选择出场方式与位置，再选择费用。</p>
-    <div className="play-choice-groups">{[false, true].map((evolution) => {
+    {supportsEvolution && <section className="evolution-mode-panel"><div className="battle-choice-grid"><button type="button" aria-pressed={mode === 'normal'} className={mode === 'normal' ? 'selected' : ''} disabled={!normalChoices.length} onClick={() => { setMode('normal'); setChoiceKey(''); setPaymentIds([]); }}>通常出场 · 费用 {definition.cost}</button><button type="button" aria-pressed={mode === 'evolution'} className={mode === 'evolution' ? 'selected' : ''} disabled={!evolutionChoices.length} onClick={() => { setMode('evolution'); setChoiceKey(evolutionChoices.length === 1 ? playKey(evolutionChoices[0]!) : ''); setPaymentIds([]); }}>升变召唤 · 费用 2</button></div><p>{evolutionChoices.length ? '可以升变：选择升变召唤，再支付2费。' : evolutionCheck?.available ? '条件满足，但当前对局未提供升变操作。请刷新并重新进入房间。' : evolutionCheck?.reason ?? '当前对局没有提供升变选项，请刷新页面并重新创建房间。'}</p></section>}
+    <div className="play-choice-groups">{[mode === 'evolution'].map((evolution) => {
       const options = choices.filter((choice) => (choice.evolutionTargetSlot !== undefined) === evolution);
       return options.length > 0 && <section key={String(evolution)}><h3>{evolution ? '升变召唤' : '通常使用'}</h3><div className="battle-choice-grid">{options.map((choice) => <button key={playKey(choice)} className={playKey(choice) === choiceKey ? 'selected' : ''} onClick={() => choose(choice)}>{choiceLabel(choice)}</button>)}</div></section>;
     })}</div>

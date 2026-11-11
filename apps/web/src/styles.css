@@ -394,6 +394,8 @@ button { color: inherit; }
 .battle-choice-grid button { padding: 12px; border: 1px solid #375a70; border-radius: 5px; background: #102b3d; color: #d5e9f6; text-align: left; cursor: pointer; line-height: 1.6; }
 .battle-choice-grid button:hover { border-color: #74c5f4; }.battle-choice-grid button.selected { border: 2px solid #68c9ff; background: #174662; box-shadow: inset 3px 0 #68c9ff; }
 .chosen-play-summary { padding: 10px 12px; border-left: 3px solid #eac367; color: #ead9ac; background: #2b281f; font-size: 13px; }
+.evolution-mode-panel { margin-top: 18px; padding: 14px; border: 1px solid #52718a; border-left: 3px solid #eac367; border-radius: 5px; background: #112a3a; }
+.evolution-mode-panel p { margin: 12px 0 0; color: #e1c78b; font-size: 13px; line-height: 1.7; }
 .blocker-choice-grid { display: flex; flex-wrap: wrap; gap: 18px; padding: 12px 4px; }
 .blocker-choice-grid > div { display: grid; gap: 8px; justify-items: center; max-width: 160px; color: #a8cce1; font-size: 12px; }
 .blocker-choice-grid .mini-card, .payment-options .mini-card { width: 104px; height: 146px; }

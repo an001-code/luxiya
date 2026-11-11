@@ -5,6 +5,28 @@ const rng = () => sequenceRng([0.1]);
 const card = (instanceId: string, cardId = 'DEV-001') => ({ instanceId, cardId, face: 'up' as const, rested: false });
 
 describe('explicit play choices and automatic draw confirmation', () => {
+  it('offers the evolution shown in the screenshot: two-cost Lucia with five available energy', () => {
+    const state = createGame(['p1', 'p2'], developmentDeck, rng()); state.phase = 'main';
+    const player = state.players[state.activePlayerId]!;
+    player.hand = [card('screenshot-red-lotus', 'ST01-001')];
+    player.field[0] = card('screenshot-base', 'ST01-004');
+    player.energy = Array.from({ length: 5 }, (_, index) => card(`screenshot-fee-${index}`));
+    expect(getLegalActions(state, player.id)).toContainEqual({ type: 'PLAY_CARD', instanceId: 'screenshot-red-lotus', evolutionTargetSlot: 0, paymentCost: 2 });
+  });
+  it('accepts a five-cost Lucia as the evolution base', () => {
+    const state = createGame(['p1', 'p2'], developmentDeck, rng()); state.phase = 'main';
+    const player = state.players[state.activePlayerId]!;
+    player.hand = [card('five-cost-upgrade', 'ST01-001')]; player.field[0] = card('five-cost-base', 'ST01-001');
+    player.energy = Array.from({ length: 5 }, (_, index) => card(`cost-five-fee-${index}`));
+    expect(getLegalActions(state, player.id)).toContainEqual({ type: 'PLAY_CARD', instanceId: 'five-cost-upgrade', evolutionTargetSlot: 0, paymentCost: 2 });
+  });
+  it('does not offer evolution before the energy zone has five cards', () => {
+    const state = createGame(['p1', 'p2'], developmentDeck, rng()); state.phase = 'main';
+    const player = state.players[state.activePlayerId]!;
+    player.hand = [card('too-early', 'ST01-001')]; player.field[0] = card('early-base', 'ST01-004');
+    player.energy = Array.from({ length: 4 }, (_, index) => card(`early-fee-${index}`));
+    expect(getLegalActions(state, player.id).some((action) => action.type === 'PLAY_CARD' && action.evolutionTargetSlot !== undefined)).toBe(false);
+  });
   it('only offers characters as attackers, character targets and blockers', () => {
     const state = createGame(['p1', 'p2'], developmentDeck, rng()); state.phase = 'main'; state.turn = 3;
     const player = state.players[state.activePlayerId]!;
@@ -25,7 +47,7 @@ describe('explicit play choices and automatic draw confirmation', () => {
     const player = state.players[state.activePlayerId]!;
     player.hand = [card('evolve', 'ST01-001')];
     player.field[3] = card('base', 'ST01-005');
-    player.energy = [card('fee1'), card('fee2')];
+    player.energy = [card('fee1'), card('fee2'), ...Array.from({ length: 3 }, (_, index) => ({ ...card(`rested-fee-${index}`), rested: true }))];
     const actions = getLegalActions(state, player.id).filter((action) => action.type === 'PLAY_CARD');
     expect(actions).toEqual([{ type: 'PLAY_CARD', instanceId: 'evolve', evolutionTargetSlot: 3, paymentCost: 2 }]);
     const result = applyCommand(state, { ...actions[0]!, type: 'PLAY_CARD', instanceId: 'evolve', paymentIds: ['fee1', 'fee2'], commandId: 'evolve', playerId: player.id, expectedVersion: 0 }, rng());
