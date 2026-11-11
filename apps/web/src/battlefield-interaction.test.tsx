@@ -19,6 +19,45 @@ const baseView: PlayerView = {
 };
 
 describe('Battlefield interaction state', () => {
+  it('reorders signals before submitting the complete order', async () => {
+    const user = userEvent.setup();
+    const onCommand = vi.fn();
+    render(<Battlefield view={{ ...baseView, legalActions: [], pendingDecision: {
+      id: 'sort', frameId: 'raven', kind: 'order-cards', purpose: 'action', prompt: '排列信号球', min: 3, max: 3,
+      options: ['a', 'b', 'c'].map((id) => ({ id, instanceId: id, cardId: 'BP01-079', label: id })),
+    } }} onCommand={onCommand} />);
+    await user.click(screen.getByRole('button', { name: '将 b 前移' }));
+    expect(onCommand).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: '确认顺序' }));
+    expect(onCommand).toHaveBeenCalledWith({ type: 'RESOLVE_EFFECT_DECISION', decisionId: 'sort', selectedInstanceIds: ['b', 'a', 'c'] });
+  });
+
+  it('opens a target chooser for equipment already on the field', async () => {
+    const user = userEvent.setup();
+    const onCommand = vi.fn();
+    const weapon = { ...card, instanceId: 'weapon', cardId: 'BP01-023' };
+    const host = { ...card, instanceId: 'host', cardId: 'PR-016' };
+    render(<Battlefield view={{ ...baseView, self: { ...baseView.self, field: [weapon, host, null, null, null] },
+      legalActions: [{ type: 'EQUIP_CARD', sourceSlot: 0, targetSlot: 1 }],
+    }} onCommand={onCommand} />);
+    await user.click(screen.getByRole('button', { name: '装备' }));
+    const dialog = within(screen.getByRole('dialog', { name: '选择装备角色' }));
+    await user.click(dialog.getByRole('button', { name: /A2/ }));
+    await user.click(dialog.getByRole('button', { name: '确认装备' }));
+    expect(onCommand).toHaveBeenCalledWith({ type: 'EQUIP_CARD', sourceSlot: 0, targetSlot: 1 });
+  });
+
+  it('lets the owner inspect a dark energy card while its board art remains hidden', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<Battlefield view={{ ...baseView, legalActions: [], self: { ...baseView.self,
+      hand: [], energy: [{ ...card, instanceId: 'dark', cardId: 'ST01-005', face: 'down' }],
+    } }} onCommand={() => undefined} />);
+    const fee = container.querySelector('[data-card-view="dark"]') as HTMLElement;
+    expect(fee.querySelector('.battle-card-back')).toBeTruthy();
+    await user.click(fee);
+    expect(container.querySelector('.detail-art img')?.getAttribute('src')).toContain('/api/cards/ST01-005/image');
+    expect(fee.querySelector('img')).toBeNull();
+  });
   it('lets the player inspect a single effect target before confirming it', async () => {
     const user = userEvent.setup();
     const onCommand = vi.fn();

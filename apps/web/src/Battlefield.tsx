@@ -5,7 +5,8 @@ import { BattleCardArt } from './BattleCardArt.js';
 import { BattleDialog } from './BattleDialog.js';
 import { BattleMotion } from './BattleMotion.js';
 import { MiniCard, cardName, type ViewCard } from './BattleCard.js';
-import { AttackTargetDialog, DefenseDialog, PlayCardDialog, type PlayAction } from './BattleChoices.js';
+import { AttackTargetDialog, DefenseDialog, EquipCardDialog, PlayCardDialog, type EquipAction, type PlayAction } from './BattleChoices.js';
+import { OrderCardsDialog } from './OrderCardsDialog.js';
 import { attributeLabels, cardTypeLabel } from './card-labels.js';
 
 interface BattlefieldProps {
@@ -13,7 +14,7 @@ interface BattlefieldProps {
   onCommand: (action: LegalAction) => void;
 }
 
-type FieldAction = Extract<LegalAction, { type: 'DECLARE_ATTACK' | 'BLOCK' }>;
+type FieldAction = Extract<LegalAction, { type: 'DECLARE_ATTACK' | 'BLOCK' | 'EQUIP_CARD' }>;
 
 const phaseNames = { mulligan: '起手调度', upright: '竖直阶段', draw: '抽牌阶段', energy: '费用填充', main: '主要阶段', end: '结束阶段' };
 
@@ -48,8 +49,9 @@ function ResourcePanel({ board, side, onView, onPayment, paymentIds, onEliminate
           const card = board.energy[index];
           if (!card) return <div className="energy-slot empty" key={index} data-energy-slot={index}><span>+</span></div>;
           const selectable = Boolean(onPayment && !card.rested);
-          const definition = card.cardId ? getCardDefinition(card.cardId) : null;
-          return <button data-card-view={card.instanceId} className={`energy-slot ${card.rested ? 'rested' : ''} ${card.face === 'down' ? 'facedown' : ''} ${selectable ? 'pay-selectable' : ''} ${paymentIds.has(card.instanceId) ? 'payment-selected' : ''}`} key={card.instanceId} data-energy-slot={index} onClick={() => { onView(card); onPayment?.(card); }} title={cardName(card)}><span className="resource-card-cost">{definition?.cost ?? '?'}</span><b className="resource-card-art"><BattleCardArt key={card.cardId} cardId={card.cardId} /></b><strong>{definition ? attributeLabels[definition.attribute] : '暗费'}</strong>{paymentIds.has(card.instanceId) && <span className="payment-mark">支付</span>}</button>;
+          const visibleCardId = card.face === 'down' ? null : card.cardId;
+          const definition = visibleCardId ? getCardDefinition(visibleCardId) : null;
+          return <button data-card-view={card.instanceId} className={`energy-slot ${card.rested ? 'rested' : ''} ${card.face === 'down' ? 'facedown' : ''} ${selectable ? 'pay-selectable' : ''} ${paymentIds.has(card.instanceId) ? 'payment-selected' : ''}`} key={card.instanceId} data-energy-slot={index} onClick={() => { onView(card); onPayment?.(card); }} title={cardName(card)}><span className="resource-card-cost">{definition?.cost ?? '?'}</span><b className="resource-card-art"><BattleCardArt key={visibleCardId} cardId={visibleCardId} /></b><strong>{definition ? attributeLabels[definition.attribute] : '暗费'}</strong>{paymentIds.has(card.instanceId) && <span className="payment-mark">支付</span>}</button>;
         })}
       </div>
     </section>
@@ -73,7 +75,7 @@ function FieldRow({ board, side, selectedId, onCard, getAction, onAction }: {
       <div className="deck-pile"><span>牌组</span><strong>{board.deck.count}</strong></div>
       {board.field.map((card, index) => {
         const fieldAction = getAction?.(index) ?? null;
-        return <div className="field-slot" data-field-slot={`${side}-${index}`} key={index}>{card ? <MiniCard card={card} selected={selectedId === card.instanceId} onClick={() => onCard(card)} /> : <span>A{index + 1}</span>}{fieldAction && <button className="slot-action" onClick={() => onAction?.(fieldAction.action)}>{fieldAction.label}</button>}</div>;
+        return <div className="field-slot" data-field-slot={`${side}-${index}`} key={index}>{card ? <><MiniCard card={card} selected={selectedId === card.instanceId} onClick={() => onCard(card)} />{card.attached?.map((item) => <button className="attached-equipment" key={item.instanceId} onClick={() => onCard(item)}>装备 · {cardName(item)}</button>)}</> : <span>A{index + 1}</span>}{fieldAction && <button className="slot-action" onClick={() => onAction?.(fieldAction.action)}>{fieldAction.label}</button>}</div>;
       })}
       <div className="grave-pile"><span>墓地</span><strong>{board.graveyard.length}</strong></div>
     </div>
@@ -94,6 +96,7 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
   const [detailCardId, setDetailCardId] = useState<string | null>(null);
   const [actionCardId, setActionCardId] = useState<string | null>(null);
   const [attackSlot, setAttackSlot] = useState<number | null>(null);
+  const [equipSlot, setEquipSlot] = useState<number | null>(null);
   const [dismissedDefenseVersion, setDismissedDefenseVersion] = useState<number | null>(null);
   const [mulliganIds, setMulliganIds] = useState<string[]>([]);
   const [decisionSelectionIds, setDecisionSelectionIds] = useState<string[]>([]);
@@ -134,7 +137,9 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
   const actionLabel = view.phase === 'mulligan' ? `确认调度 (${mulliganIds.length})` : (view.pendingAttack || view.priorityWindow) ? '不响应' : view.phase === 'energy' ? (actionCardId ? '放置为费用' : '跳过填充') : view.phase === 'main' ? '结束阶段' : '推进阶段';
   const fieldActionAt = (index: number): { label: string; action: FieldAction } | null => {
     const attack = view.legalActions.find((action): action is Extract<LegalAction, { type: 'DECLARE_ATTACK' }> => action.type === 'DECLARE_ATTACK' && action.attackerSlot === index);
-    return attack ? { label: '攻击', action: attack } : null;
+    if (attack) return { label: '攻击', action: attack };
+    const equip = view.legalActions.find((action): action is EquipAction => action.type === 'EQUIP_CARD' && action.sourceSlot === index);
+    return equip ? { label: '装备', action: equip } : null;
   };
   const eliminateAction = view.legalActions.find((action): action is Extract<LegalAction, { type: 'ELIMINATE_SIGNALS' }> => action.type === 'ELIMINATE_SIGNALS');
   const chooseDecisionOption = (optionId: string, instanceId?: string) => {
@@ -159,6 +164,8 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
   const showEnergy = view.phase === 'energy' && view.legalActions.some((action) => action.type === 'SET_ENERGY');
   const showPlay = Boolean(actionCard && playChoices.length && !showOpening && !showEnergy && !view.pendingDecision);
   const attackChoices = view.legalActions.filter((action): action is Extract<LegalAction, { type: 'DECLARE_ATTACK' }> => action.type === 'DECLARE_ATTACK' && action.attackerSlot === attackSlot);
+  const equipChoices = view.legalActions.filter((action): action is EquipAction => action.type === 'EQUIP_CARD' && action.sourceSlot === equipSlot);
+  const reorderAll = view.pendingDecision?.kind === 'order-cards' && view.pendingDecision.min === view.pendingDecision.options.length && view.pendingDecision.max === view.pendingDecision.options.length;
   const canDefend = view.pendingAttack?.stage === 'response' && view.pendingAttack.blockerSlot === undefined && !isMine && view.pendingAttack.priorityPlayerId === view.viewerId
     && view.legalActions.some((action) => action.type === 'PASS_RESPONSE') && !view.processingPending && !view.pendingDecision;
   const showDefense = canDefend && dismissedDefenseVersion !== view.version && !showPlay;
@@ -183,7 +190,7 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
           <ProcessingZone board={view.self} side="self" selectedId={detailCardId} onCard={viewCard} />
         </section>
         <CorruptionBar corruption={view.self.corruption} side="self" />
-        <FieldRow board={view.self} side="self" selectedId={detailCardId} onCard={viewCard} getAction={fieldActionAt} onAction={(action) => { if (action.type === 'DECLARE_ATTACK') setAttackSlot(action.attackerSlot); }} />
+        <FieldRow board={view.self} side="self" selectedId={detailCardId} onCard={viewCard} getAction={fieldActionAt} onAction={(action) => { if (action.type === 'DECLARE_ATTACK') setAttackSlot(action.attackerSlot); if (action.type === 'EQUIP_CARD') setEquipSlot(action.sourceSlot); }} />
         <div className="hand-zone">
           <span className="hand-count">手牌 {hand.length}</span>
           <div className="hand-cards">
@@ -196,8 +203,10 @@ export function Battlefield({ view, onCommand }: BattlefieldProps) {
       {showPlay && actionCard && <PlayCardDialog key={actionCard.instanceId} card={actionCard} choices={playChoices} energy={view.self.energy} field={view.self.field} evolutionCheck={view.evolutionChecks?.[actionCard.instanceId]} onView={viewCard} onClose={() => setActionCardId(null)} onCommand={(action) => { onCommand(action); setActionCardId(null); setDismissedDefenseVersion(view.version); }} />}
       {attackChoices.length > 0 && <AttackTargetDialog choices={attackChoices} view={view} onView={viewCard} onClose={() => setAttackSlot(null)} onCommand={(action) => { onCommand(action); setAttackSlot(null); }} />}
       {showDefense && <DefenseDialog key={`${view.gameId}-${view.version}`} view={view} onView={viewCard} onPlay={chooseHandCard} onClose={() => setDismissedDefenseVersion(view.version)} onCommand={(action) => { onCommand(action); setDismissedDefenseVersion(view.version); }} />}
-      {view.drawConfirmation && <BattleDialog title="抽牌完成"><p className="battle-dialog-hint">程序已完成竖直与本回合抽牌，共抽取 {view.drawConfirmation.count} 张。确认后进入费用填充。</p><div className="battle-dialog-body"><div className="dialog-card-grid">{view.drawConfirmation.cards.map((card) => <MiniCard key={card.instanceId} card={card} onClick={() => viewCard(card)} />)}</div>{preview}</div><footer><button className="primary-action" disabled={!view.legalActions.some((action) => action.type === 'CONFIRM_DRAW')} onClick={() => onCommand({ type: 'CONFIRM_DRAW' })}>确认抽牌</button></footer></BattleDialog>}
-      {view.pendingDecision && <BattleDialog title={view.pendingDecision.prompt}><section className="effect-decision" data-effect-decision={view.pendingDecision.id}>
+      {equipChoices.length > 0 && <EquipCardDialog choices={equipChoices} field={view.self.field} onView={viewCard} onClose={() => setEquipSlot(null)} onCommand={(action) => { onCommand(action); setEquipSlot(null); }} />}
+      {view.drawConfirmation && <BattleDialog title="抽牌完成"><div className="battle-dialog-body"><div className="dialog-card-grid">{view.drawConfirmation.cards.map((card) => <MiniCard key={card.instanceId} card={card} onClick={() => viewCard(card)} />)}</div>{preview}</div><footer><button className="primary-action" disabled={!view.legalActions.some((action) => action.type === 'CONFIRM_DRAW')} onClick={() => onCommand({ type: 'CONFIRM_DRAW' })}>确认抽牌</button></footer></BattleDialog>}
+      {view.pendingDecision && reorderAll && <OrderCardsDialog key={view.pendingDecision.id} decision={view.pendingDecision} onCommand={onCommand} />}
+      {view.pendingDecision && !reorderAll && <BattleDialog title={view.pendingDecision.prompt}><section className="effect-decision" data-effect-decision={view.pendingDecision.id}>
               <strong>{view.pendingDecision.prompt}</strong>
               <small>{view.pendingDecision.kind === 'order-cards' ? '按需要的顺序依次点击卡牌；再次点击可以取消。' : `请选择 ${view.pendingDecision.min}-${Math.min(view.pendingDecision.max, view.pendingDecision.options.length)} 项`}</small>
               <div className="decision-options">{view.pendingDecision.options.map((option) => <button

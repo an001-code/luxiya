@@ -17,6 +17,21 @@ const view: PlayerView = {
 };
 
 describe('Battlefield', () => {
+  test('draw confirmation omits the automatic phase explanation', () => {
+    const html = renderToStaticMarkup(<Battlefield view={{ ...view, drawConfirmation: { count: 1, cards: [] } }} onCommand={() => undefined} />);
+    expect(html).toContain('确认抽牌');
+    expect(html).not.toContain('程序已完成');
+    expect(html).not.toContain('确认后进入费用填充');
+  });
+
+  test('own dark energy keeps its inspectable identity but renders a card back', () => {
+    const html = renderToStaticMarkup(<Battlefield view={{ ...view, self: { ...view.self,
+      energy: [{ instanceId: 'dark-energy', cardId: 'ST01-005', face: 'down', rested: false }],
+    } }} onCommand={() => undefined} />);
+    expect(html).toContain('data-card-view="dark-energy"');
+    expect(html).toContain('battle-card-back');
+    expect(html).not.toContain('/api/cards/ST01-005/image');
+  });
   test('renders mirrored resources, ten field slots and the three inspector tabs', () => {
     const html = renderToStaticMarkup(<Battlefield view={view} onCommand={() => undefined} />);
     expect(html.match(/data-field-slot=/g)).toHaveLength(10);

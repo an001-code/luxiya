@@ -48,14 +48,13 @@ export const executeCurrentCardCustomAction = (
     const targetId = `action:${frame.actionIndex}`;
     const selected = frame.selectedTargets[targetId];
     if (!selected) {
-      if (player.signals.length < 2) return 'done';
       const decision: PendingDecision = {
         id: `${frame.id}:reorder:${frame.actionIndex}`,
         frameId: frame.id,
         playerId: frame.controllerId,
         kind: 'order-cards',
         purpose: 'action',
-        prompt: '请按从下到上的顺序排列信号球',
+        prompt: player.signals.length ? '排列信号球（从前到后）' : '信号球区为空，确认后继续',
         min: player.signals.length,
         max: player.signals.length,
         targetId,
@@ -151,7 +150,7 @@ export const executeCurrentCardCustomAction = (
       if (slot >= 0) {
         const returned = player.field[slot]!;
         player.field[slot] = null;
-        player.hand.push(returned);
+        player.hand.push({ ...returned, face: 'up', rested: false });
       }
       frame.selectedTargets[returnedKey] = ['done'];
     }

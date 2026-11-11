@@ -7,6 +7,23 @@ import { attributeLabels, cardTypeLabel } from './card-labels.js';
 
 export type PlayAction = Extract<LegalAction, { type: 'PLAY_CARD' }>;
 type AttackAction = Extract<LegalAction, { type: 'DECLARE_ATTACK' }>;
+export type EquipAction = Extract<LegalAction, { type: 'EQUIP_CARD' }>;
+
+export function EquipCardDialog({ choices, field, onCommand, onClose, onView }: {
+  choices: EquipAction[]; field: (PublicCardView | null)[]; onCommand: (action: EquipAction) => void;
+  onClose: () => void; onView: (card: ViewCard) => void;
+}) {
+  const [targetSlot, setTargetSlot] = useState<number | null>(null);
+  const chosen = choices.find((action) => action.targetSlot === targetSlot);
+  return <BattleDialog title="选择装备角色" onClose={onClose}>
+    <p className="battle-dialog-hint">选择一名尚未持有装备的己方角色。装备将移到角色下方，腾出原卡位，无需再次支付出场费用。</p>
+    <div className="battle-choice-grid">{choices.map((action) => {
+      const target = field[action.targetSlot]!;
+      return <button key={action.targetSlot} className={targetSlot === action.targetSlot ? 'selected' : ''} onClick={() => { setTargetSlot(action.targetSlot); onView(target); }}>A{action.targetSlot + 1} · {cardName(target)}</button>;
+    })}</div>
+    <footer><button onClick={onClose}>取消</button><button className="primary-action" disabled={!chosen} onClick={() => { if (chosen) onCommand(chosen); }}>确认装备</button></footer>
+  </BattleDialog>;
+}
 const playKey = (action: PlayAction) => JSON.stringify([action.instanceId, action.fieldSlot, action.targetSlot, action.evolutionTargetSlot, action.discountSignalIds]);
 
 export function PlayCardDialog({ card, choices, energy, field, evolutionCheck, onCommand, onClose, onView }: {

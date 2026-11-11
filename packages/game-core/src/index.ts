@@ -81,7 +81,7 @@ const drawOne = (state: GameState, player: PlayerState, rng: Rng): CardInstance 
   const card = player.deck.shift() ?? null;
   if (card) {
     card.face = 'up';
-    player.hand.push(card);
+    player.hand.push({ ...card, face: 'up', rested: false });
   }
   return card;
 };
@@ -285,6 +285,14 @@ export const getLegalActions = (state: GameState, playerId: string): LegalAction
     }
   }
   for (let startIndex = 0; startIndex + 2 < player.signals.length; startIndex += 1) actions.push({ type: 'ELIMINATE_SIGNALS', startIndex });
+  player.field.forEach((source, sourceSlot) => {
+    if (!source || definitionFor(state, source.cardId).subtype !== 'equipment') return;
+    player.field.forEach((target, targetSlot) => {
+      if (target && definitionFor(state, target.cardId).type === 'character' && !target.attached?.length) {
+        actions.push({ type: 'EQUIP_CARD', sourceSlot, targetSlot });
+      }
+    });
+  });
   player.field.forEach((card) => {
     if (!card || card.rested) return;
     definitionFor(state, card.cardId).structuredEffects?.forEach((effect, abilityIndex) => {
@@ -449,12 +457,12 @@ const attackCharge = (state: GameState, player: PlayerState, attacker: CardInsta
     card.face = 'up';
     const definition = definitionFor(state, card.cardId);
     if (definition.signal) {
-      player.signals.unshift(card);
+      player.signals.push(card);
       const chargeEffects = definition.structuredEffects?.filter((effect) => effect.ability === 'charge') ?? [];
       enqueueEffects(state, { controllerId: player.id, sourceInstanceId: attacker.instanceId }, chargeEffects);
       continueEffectResolution(state, rng);
       if (state.pendingDecision) return;
-    } else player.hand.push(card);
+    } else player.hand.push({ ...card, face: 'up', rested: false });
     addEvent(state, 'attack-charge', player.id, `${player.id} 执行攻击充能`);
   }
 };
@@ -533,7 +541,7 @@ const cleanupResolvedTactics = (state: GameState): void => {
     const index = player.processing.findIndex((card) => card.instanceId === entry.instanceId);
     if (index < 0) continue;
     const [card] = player.processing.splice(index, 1);
-    if (entry.destination === 'signals') player.signals.unshift(card!);
+    if (entry.destination === 'signals') player.signals.push(card!);
     else player.graveyard.push(card!);
   }
   state.processingCleanup = [];
@@ -628,7 +636,7 @@ export const advanceProcessing = (state: GameState, rng: Rng): GameState => {
         if (attacker) enqueueEffects(next, { controllerId: player.id, sourceInstanceId: attacker.instanceId }, definition.structuredEffects?.filter((effect) => effect.ability === 'charge') ?? []);
         continueEffectResolution(next, rng);
         cleanupResolvedTactics(next);
-      } else { player.processing.splice(index, 1); player.hand.push(card); }
+      } else { player.processing.splice(index, 1); player.hand.push({ ...card, face: 'up', rested: false }); }
       addEvent(next, 'attack-charge', player.id, `${player.id} 执行攻击充能`);
     } else {
       player.processing.splice(index, 1);
@@ -773,13 +781,14 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
         underneath: [target, ...(target.underneath ?? [])],
       };
     } else if (definition.signal) {
-      player.signals.unshift(card);
+      player.signals.push(card);
     } else if (definition.type === 'character' || definition.subtype === 'support') {
       const slot = command.fieldSlot ?? player.field.findIndex((item) => item === null);
       if (slot < 0 || slot >= 5 || player.field[slot]) return reject(state, 'ILLEGAL_ACTION', '没有合法战场卡位');
       player.field[slot] = { ...card, enteredTurn: next.turn };
     } else if (definition.subtype === 'equipment' && command.targetSlot !== undefined && command.targetSlot >= 0 && player.field[command.targetSlot]) {
       const target = player.field[command.targetSlot]!;
+      if (definitionFor(next, target.cardId).type !== 'character') return reject(state, 'ILLEGAL_ACTION', '装备目标必须是角色');
       if (target.attached?.length) return reject(state, 'ILLEGAL_ACTION', '该角色已经装备了道具');
       target.attached = [card];
     } else if (definition.subtype === 'equipment') {
@@ -803,6 +812,16 @@ export const applyCommand = (state: GameState, command: GameCommand, rng: Rng): 
       next.priorityWindow.priorityPlayerId = opponentId(next, command.playerId);
       next.priorityWindow.consecutivePasses = 0;
     }
+  } else if (command.type === 'EQUIP_CARD') {
+    if (!getLegalActions(state, command.playerId).some((action) => action.type === 'EQUIP_CARD'
+      && action.sourceSlot === command.sourceSlot && action.targetSlot === command.targetSlot)) {
+      return reject(state, 'ILLEGAL_ACTION', '当前无法将该装备装备给所选角色');
+    }
+    const source = player.field[command.sourceSlot]!;
+    const target = player.field[command.targetSlot]!;
+    player.field[command.sourceSlot] = null;
+    target.attached = [source];
+    addEvent(next, 'equip-card', player.id, `${player.id} 将《${definitionFor(next, source.cardId).name}》装备给《${definitionFor(next, target.cardId).name}》`);
   } else if (command.type === 'ACTIVATE_ABILITY' && next.phase === 'main' && next.activePlayerId === command.playerId && !next.pendingAttack) {
     const source = player.field.find((fieldCard) => fieldCard?.instanceId === command.sourceInstanceId);
     if (!source) return reject(state, 'ILLEGAL_ACTION', '能力来源不在战场');

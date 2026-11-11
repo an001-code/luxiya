@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { developmentDeck } from '@pgr/cards';
-import { applyCommand, createGame, createPlayerView, sequenceRng } from '../index.js';
+import { advanceProcessing, applyCommand, createGame, createPlayerView, sequenceRng } from '../index.js';
 
 const makeGame = () => createGame(['p1', 'p2'], developmentDeck, sequenceRng([0.1]));
 const card = (instanceId: string, cardId: string) => ({ instanceId, cardId, face: 'up' as const, rested: false });
@@ -13,6 +13,19 @@ const passTwice = (state: ReturnType<typeof makeGame>, attackerId: string, defen
 };
 
 describe('zone and ordered signal effects', () => {
+  test.each(['immediate', 'deferred'] as const)('newly played signals follow existing signals in %s processing', (mode) => {
+    const state = makeGame();
+    state.phase = 'main';
+    if (mode === 'deferred') state.processingMode = 'deferred';
+    const player = state.players[state.activePlayerId]!;
+    player.signals = [card('older', 'BP01-081')];
+    player.hand = [card('newer', 'BP01-079')];
+    const played = applyCommand(state, { type: 'PLAY_CARD', instanceId: 'newer', paymentIds: [],
+      playerId: player.id, commandId: 'signal', expectedVersion: state.version }, sequenceRng([0.1]));
+    expect(played.accepted).toBe(true);
+    const final = mode === 'deferred' ? advanceProcessing(played.state, sequenceRng([0.1])) : played.state;
+    expect(final.players[player.id]!.signals.map((entry) => entry.instanceId)).toEqual(['older', 'newer']);
+  });
   test('PR-006 pays discard, returns the chosen face-up energy, then charges the deck top rested', () => {
     const state = makeGame();
     const playerId = state.activePlayerId;
@@ -32,6 +45,7 @@ describe('zone and ordered signal effects', () => {
     }, sequenceRng([0.1]));
     const finalPlayer = resolved.state.players[playerId]!;
     expect(finalPlayer.hand.map((entry) => entry.instanceId)).toContain('returned');
+    expect(finalPlayer.hand.find((entry) => entry.instanceId === 'returned')).toMatchObject({ face: 'up', rested: false });
     expect(finalPlayer.graveyard.map((entry) => entry.instanceId)).toContain('discarded');
     expect(finalPlayer.energy).toContainEqual(expect.objectContaining({ instanceId: 'charged-top', rested: true, face: 'up' }));
   });
@@ -88,7 +102,25 @@ describe('zone and ordered signal effects', () => {
       type: 'PLAY_CARD', commandId: 'play-bp03-076', playerId, expectedVersion: state.version,
       instanceId: 'bp03-076', fieldSlot: 0, paymentIds: player.energy.map((entry) => entry.instanceId),
     }, sequenceRng([0.1]));
-    expect(result.state.players[playerId]!.signals.map((entry) => entry.instanceId)).toEqual(['blue', 'existing']);
+    expect(result.state.players[playerId]!.signals.map((entry) => entry.instanceId)).toEqual(['existing', 'blue']);
+  });
+
+  test.each([0, 1])('PR-004 explicitly confirms signal ordering with %i signals', (count) => {
+    const state = makeGame();
+    const playerId = state.activePlayerId;
+    const player = state.players[playerId]!;
+    state.phase = 'main';
+    player.hand = [card('raven', 'PR-004')];
+    player.energy = energy(5, 'DEV-004');
+    player.signals = count ? [card('only-signal', 'BP01-079')] : [];
+    const played = applyCommand(state, { type: 'PLAY_CARD', commandId: 'raven', playerId, expectedVersion: state.version,
+      instanceId: 'raven', fieldSlot: 0, paymentIds: player.energy.map((entry) => entry.instanceId) }, sequenceRng([0.1]));
+    expect(played.state.pendingDecision?.kind).toBe('order-cards');
+    const resolved = applyCommand(played.state, { type: 'RESOLVE_EFFECT_DECISION', commandId: 'order', playerId,
+      expectedVersion: played.state.version, decisionId: played.state.pendingDecision!.id,
+      selectedInstanceIds: player.signals.map((entry) => entry.instanceId) }, sequenceRng([0.1]));
+    expect(resolved.accepted).toBe(true);
+    expect(resolved.state.pendingDecision).toBeNull();
   });
 });
 

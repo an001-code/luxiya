@@ -8,6 +8,7 @@ describe('online presentation checkpoints', () => {
     const state = createGame(['p1', 'p2'], developmentDeck, rng());
     state.processingMode = 'deferred'; state.phase = 'main';
     const player = state.players[state.activePlayerId]!;
+    player.signals = [{ instanceId: 'older-signal', cardId: 'BP01-079', face: 'up', rested: false }];
     player.field[0] = { instanceId: 'charge-attacker', cardId: 'DEV-002', face: 'up', rested: true };
     player.deck.unshift({ instanceId: 'charged-red', cardId: 'BP01-080', face: 'down', rested: false });
     state.pendingAttack = { attackerSlot: 0, target: 'player', priorityPlayerId: player.id, consecutivePasses: 1, stage: 'response' };
@@ -15,10 +16,10 @@ describe('online presentation checkpoints', () => {
     const choice = advanceProcessing(started.state, rng());
     expect(choice.pendingDecision?.kind).toBe('choose-option');
     expect(choice.players[player.id]!.processing[0]?.instanceId).toBe('charged-red');
-    expect(choice.players[player.id]!.signals).toHaveLength(0);
+    expect(choice.players[player.id]!.signals.map((card) => card.instanceId)).toEqual(['older-signal']);
     const resolved = applyCommand(choice, { type: 'RESOLVE_EFFECT_DECISION', commandId: 'charge-choice', playerId: player.id, expectedVersion: choice.version, decisionId: choice.pendingDecision!.id, optionId: choice.pendingDecision!.options.at(-1)!.id, selectedInstanceIds: [] }, rng());
     expect(resolved.accepted).toBe(true);
-    expect(resolved.state.players[player.id]!.signals[0]?.instanceId).toBe('charged-red');
+    expect(resolved.state.players[player.id]!.signals.map((card) => card.instanceId)).toEqual(['older-signal', 'charged-red']);
     expect(resolved.state.players[player.id]!.processing).toHaveLength(0);
   });
 

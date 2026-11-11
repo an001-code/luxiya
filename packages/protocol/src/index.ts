@@ -191,6 +191,7 @@ export type GameCommand = CommandBase & (
   | { type: 'SET_ENERGY'; instanceId?: string }
   | { type: 'PLAY_CARD'; instanceId: string; fieldSlot?: number; targetSlot?: number; evolutionTargetSlot?: number; paymentIds?: string[]; discountSignalIds?: string[] }
   | { type: 'ELIMINATE_SIGNALS'; startIndex: number }
+    | { type: 'EQUIP_CARD'; sourceSlot: number; targetSlot: number }
   | { type: 'ACTIVATE_ABILITY'; sourceInstanceId: string; abilityIndex: number; targetInstanceIds?: string[] }
   | { type: 'DECLARE_ATTACK'; attackerSlot: number; target: 'player' | 'character'; targetSlot?: number }
   | { type: 'BLOCK'; blockerSlot: number }

@@ -43,7 +43,7 @@ const drawOne = (state: GameState, playerId: PlayerId, rng: EffectRng): void => 
     player.corruption += 1;
   }
   const card = player.deck.shift();
-  if (card) player.hand.push({ ...card, face: 'up' });
+  if (card) player.hand.push({ ...card, face: 'up', rested: false });
 };
 
 const sourceDefinition = (state: GameState, frame: EffectFrame) => {
@@ -187,7 +187,7 @@ const costsStillPayable = (state: GameState, frame: EffectFrame): boolean => fra
   return true;
 });
 
-const moveToZone = (state: GameState, card: CardInstance, playerId: PlayerId, zone: EffectZone, position: 'top' | 'bottom' = 'bottom'): boolean => {
+const moveToZone = (state: GameState, card: CardInstance, playerId: PlayerId, zone: EffectZone, position?: 'top' | 'bottom'): boolean => {
   const player = state.players[playerId]!;
   if (zone === 'field') {
     const slot = player.field.findIndex((item) => item === null);
@@ -196,9 +196,10 @@ const moveToZone = (state: GameState, card: CardInstance, playerId: PlayerId, zo
     return true;
   }
   const destination = player[zone];
-  if (zone === 'hand') card.face = 'up';
+  if (zone === 'hand') { card.face = 'up'; card.rested = false; }
   if (zone === 'deck') card.face = 'down';
-  if (position === 'top') destination.unshift(card);
+  // Signals are displayed oldest/bottom first; deck order remains top first.
+  if (zone === 'signals' ? position === 'bottom' : position === 'top') destination.unshift(card);
   else destination.push(card);
   return true;
 };
