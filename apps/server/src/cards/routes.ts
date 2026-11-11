@@ -9,11 +9,19 @@ const rejectCardError = (reply: FastifyReply, error: unknown): FastifyReply => {
   const message = error instanceof Error ? error.message : 'UNKNOWN';
   if (message === 'CARD_NOT_FOUND') return reply.code(404).send({ error: message });
   if (message === 'CARD_EXISTS') return reply.code(409).send({ error: message });
+  if (message === 'CARD_IN_USE') return reply.code(409).send({ error: message, details: ['这张卡牌仍被牌组使用，请先从相关牌组中移除后再删除。'] });
   if (error instanceof CardValidationError) return reply.code(422).send({ error: error.message, details: error.details });
   return reply.code(400).send({ error: message });
 };
 
 export const registerCardRoutes = (app: FastifyInstance, service: CardService, auth: AuthGuard): void => {
+  app.delete<{ Params: { id: string } }>('/api/admin/cards/:id', async (request, reply) => {
+    try { await auth.requireUser(request, 'admin'); }
+    catch (error) { return rejectAuthError(reply, error); }
+    try { await service.delete(request.params.id); return reply.code(204).send(); }
+    catch (error) { return rejectCardError(reply, error); }
+  });
+
   app.get('/api/cards', async () => ({ cards: await service.listPublished() }));
 
   app.get('/api/admin/cards', async (request, reply) => {

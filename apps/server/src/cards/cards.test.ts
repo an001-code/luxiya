@@ -40,6 +40,30 @@ const cookieValue = (header: string | string[] | undefined): string => {
 };
 
 describe('admin card API', () => {
+  it('deletes only as administrator and refuses cards referenced by a deck', async () => {
+    const repository = createMemoryRepository();
+    await bootstrapAdmin(repository, { username: 'Anonce', password: 'BootstrapPass!21' });
+    const server = buildServer({ repository });
+    const login = await server.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'Anonce', password: 'BootstrapPass!21' } });
+    const cookie = cookieValue(login.headers['set-cookie']);
+    const created = await server.inject({ method: 'POST', url: '/api/admin/cards', headers: { cookie }, payload: cardInput });
+    expect(created.statusCode).toBe(201);
+    expect((await server.inject({ method: 'DELETE', url: '/api/admin/cards/TEST-001' })).statusCode).toBe(401);
+    const player = await server.inject({ method: 'POST', url: '/api/auth/register', payload: { username: 'delete_player', password: 'TestPass!21' } });
+    const playerCookie = cookieValue(player.headers['set-cookie']);
+    expect((await server.inject({ method: 'DELETE', url: '/api/admin/cards/TEST-001', headers: { cookie: playerCookie } })).statusCode).toBe(403);
+    const userId = player.json().user.id as string;
+    await repository.saveDeck({ id: 'delete-deck', userId, name: '引用测试', active: false, cards: [{ cardId: 'TEST-001', count: 1 }], validationErrors: [], createdAt: '', updatedAt: '' });
+    expect((await server.inject({ method: 'DELETE', url: '/api/admin/cards/TEST-001', headers: { cookie } })).statusCode).toBe(409);
+    expect(await repository.findCardById('TEST-001')).not.toBeNull();
+    await repository.deleteDeck('delete-deck');
+    expect((await server.inject({ method: 'DELETE', url: '/api/admin/cards/TEST-001', headers: { cookie } })).statusCode).toBe(204);
+    expect(await repository.findCardById('TEST-001')).toBeNull();
+    expect((await server.inject({ method: 'GET', url: '/api/admin/cards/TEST-001/image', headers: { cookie } })).statusCode).toBe(404);
+    expect((await server.inject({ method: 'DELETE', url: '/api/admin/cards/TEST-001', headers: { cookie } })).statusCode).toBe(404);
+    await server.close();
+  });
+
   it('preserves a semantic prompt on card-selection targets', () => {
     const definition = cardDefinitions.find((card) => card.id === 'BP01-007')!;
     const parsed = cardInputSchema.parse(definition);

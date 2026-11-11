@@ -54,18 +54,19 @@ describe('EffectBuilder', () => {
     const actions = screen.getAllByTestId('effect-action');
     expect(actions).toHaveLength(2);
     await user.selectOptions(within(actions[1]!).getByLabelText('动作类型'), 'discard');
-    await user.type(within(actions[1]!).getByLabelText('目标 ID'), 'discard-target');
+    await user.click(screen.getByRole('button', { name: '添加目标' }));
+    await user.selectOptions(within(actions[1]!).getByLabelText('作用对象'), 'target-1');
 
     let effect = JSON.parse(screen.getByLabelText('效果数据').textContent ?? '[]')[0];
     expect(effect.actions).toEqual([
       { kind: 'draw', player: 'self', amount: { kind: 'fixed', value: 1 } },
-      { kind: 'discard', targetId: 'discard-target' },
+      { kind: 'discard', targetId: 'target-1' },
     ]);
 
     await user.selectOptions(within(actions[0]!).getByLabelText('动作类型'), 'rest');
     expect(within(actions[0]!).queryByLabelText('数量')).toBeNull();
     expect(within(actions[0]!).queryByLabelText('执行玩家')).toBeNull();
-    expect(within(actions[0]!).getByLabelText('目标 ID')).toBeTruthy();
+    expect(within(actions[0]!).getByLabelText('作用对象')).toBeTruthy();
     effect = JSON.parse(screen.getByLabelText('效果数据').textContent ?? '[]')[0];
     expect(effect.actions[0]).toEqual({ kind: 'rest', targetId: '' });
   });
@@ -74,12 +75,43 @@ describe('EffectBuilder', () => {
     const user = userEvent.setup();
     render(<Harness />);
     await user.click(screen.getByRole('button', { name: '添加效果' }));
-
-    expect(screen.getByText('阻止发布')).toBeTruthy();
-    expect(screen.getByText('动作尚未配置完整')).toBeTruthy();
-
     await user.selectOptions(screen.getByLabelText('动作类型'), 'custom');
-    await user.type(screen.getByLabelText('处理器 ID'), 'future-handler');
-    expect(screen.getByText('自定义处理器需由开发人员注册后才能发布')).toBeTruthy();
+    expect(screen.getByText('需要完善')).toBeTruthy();
+    expect(screen.getByText('动作尚未配置完整')).toBeTruthy();
+    await user.selectOptions(screen.getByLabelText('特殊规则'), 'haste');
+    expect(screen.getByText('可执行')).toBeTruthy();
+    expect(screen.queryByLabelText('处理器 ID')).toBeNull();
+  });
+
+  it('connects Chinese target choices and dynamic values without exposing identifier fields', async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(screen.getByRole('button', { name: '添加效果' }));
+    await user.click(screen.getByRole('button', { name: '添加目标' }));
+    await user.selectOptions(screen.getByLabelText('动作类型'), 'modify-stat');
+    await user.selectOptions(screen.getByLabelText('作用对象'), screen.getByRole('option', { name: '对象 1 · 我方战场的卡牌' }));
+    await user.selectOptions(screen.getByLabelText('计算方式'), 'selected-count');
+    await user.clear(screen.getByLabelText('每张乘以'));
+    await user.type(screen.getByLabelText('每张乘以'), '1000');
+    const effect = JSON.parse(screen.getByLabelText('效果数据').textContent ?? '[]')[0];
+    expect(effect.actions[0]).toMatchObject({ targetId: effect.targets[0].id, value: { kind: 'selected-count', targetId: effect.targets[0].id, multiplier: 1000 } });
+    expect(screen.queryByLabelText('目标 ID')).toBeNull();
+    expect(screen.queryByLabelText('效果 ID')).toBeNull();
+  });
+
+  it('edits branch actions using the same visual controls', async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(screen.getByRole('button', { name: '添加效果' }));
+    await user.selectOptions(screen.getByLabelText('动作类型'), 'choose');
+    await user.click(screen.getByRole('button', { name: '添加分支选项' }));
+    const names = screen.getAllByLabelText('选项名称');
+    await user.clear(names[1]!);
+    await user.type(names[1]!, '抽两张牌');
+    const amounts = screen.getAllByLabelText('数量');
+    await user.clear(amounts[1]!);
+    await user.type(amounts[1]!, '2');
+    const effect = JSON.parse(screen.getByLabelText('效果数据').textContent ?? '[]')[0];
+    expect(effect.actions[0].options[1]).toMatchObject({ label: '抽两张牌', actions: [{ kind: 'draw', amount: { kind: 'fixed', value: 2 } }] });
   });
 });

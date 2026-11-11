@@ -86,6 +86,11 @@ class MemoryRepository implements AppRepository {
     return card ? copy(card) : null;
   }
 
+  async deleteCard(id: string): Promise<void> {
+    if ([...this.state.decks.values()].some((deck) => deck.cards.some((entry) => entry.cardId === id))) throw new Error('CARD_IN_USE');
+    this.state.cards.delete(id);
+  }
+
   async listCards(filter: CardListFilter = {}): Promise<StoredCard[]> {
     return [...this.state.cards.values()]
       .filter((card) => !filter.status || card.status === filter.status)

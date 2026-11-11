@@ -60,6 +60,7 @@ export interface AppRepository {
   findSession(tokenHash: string): Promise<SessionRecord | null>;
   deleteSession(tokenHash: string): Promise<void>;
   saveCard(card: StoredCard): Promise<StoredCard>;
+  deleteCard(id: string): Promise<void>;
   findCardById(id: string): Promise<StoredCard | null>;
   listCards(filter?: CardListFilter): Promise<StoredCard[]>;
   saveDeck(deck: StoredDeck): Promise<StoredDeck>;

@@ -66,6 +66,11 @@ export class CardService {
     return (await this.repository.listCards({ status: 'published' })).map(toView);
   }
 
+  async delete(id: string): Promise<void> {
+    if (!await this.repository.findCardById(id)) throw new Error('CARD_NOT_FOUND');
+    await this.repository.deleteCard(id);
+  }
+
   async listAll(): Promise<CardView[]> {
     return (await this.repository.listCards()).map(toView);
   }

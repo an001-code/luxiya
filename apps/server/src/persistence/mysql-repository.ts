@@ -201,6 +201,15 @@ class MySqlRepository implements AppRepository {
     return rows[0] ? toCard(rows[0]) : null;
   }
 
+  async deleteCard(id: string): Promise<void> {
+    try {
+      await this.database.execute('DELETE FROM cards WHERE id = ?', [id]);
+    } catch (error) {
+      if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ER_ROW_IS_REFERENCED_2') throw new Error('CARD_IN_USE');
+      throw error;
+    }
+  }
+
   async listCards(filter: CardListFilter = {}): Promise<StoredCard[]> {
     const [rows] = filter.status
       ? await this.database.execute<CardRow[]>('SELECT * FROM cards WHERE status = ? ORDER BY id', [filter.status])

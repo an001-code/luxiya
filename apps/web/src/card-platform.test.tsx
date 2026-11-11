@@ -20,6 +20,28 @@ const card = {
 };
 
 describe('card platform screens', () => {
+  it('shows a failed deletion inside the confirmation dialog and retains the selected card', async () => {
+    const user = userEvent.setup();
+    render(<AdminCardEditor cards={[card]} onSave={async () => card} onPublish={async () => undefined} onSaveAndPublish={async () => undefined} onDelete={async () => { throw new ApiError('CARD_IN_USE', 409, ['请先从牌组移除']); }} />);
+    await user.click(screen.getByRole('button', { name: '删除卡牌' }));
+    await user.click(screen.getByRole('button', { name: '确认删除' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('请先从牌组移除');
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    expect((screen.getByLabelText('卡牌编号') as HTMLInputElement).value).toBe('TEST-001');
+  });
+  it('requires confirmation, supports cancellation and clears selection after deleting', async () => {
+    const user = userEvent.setup();
+    const onDelete = vi.fn(async () => undefined);
+    render(<AdminCardEditor cards={[card]} onSave={async () => card} onPublish={async () => undefined} onSaveAndPublish={async () => undefined} onDelete={onDelete} />);
+    await user.click(screen.getByRole('button', { name: '删除卡牌' }));
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '取消' }));
+    expect(onDelete).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: '删除卡牌' }));
+    await user.click(screen.getByRole('button', { name: '确认删除' }));
+    expect(onDelete).toHaveBeenCalledWith('TEST-001');
+    expect(screen.getByText('新建草稿')).toBeTruthy();
+  });
   it('renders login and registration actions before entering the command terminal', () => {
     const html = renderToStaticMarkup(<AuthScreen busy={false} error="" onSubmit={() => undefined} />);
     expect(html).toContain('账号登录');

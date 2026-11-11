@@ -24,15 +24,17 @@ interface AdminCardEditorProps {
   onSave: (input: CardDraftInput, existingId: string | null) => Promise<CardCatalogEntry>;
   onPublish: (id: string) => Promise<void>;
   onSaveAndPublish: (input: CardDraftInput, existingId: string | null) => Promise<void>;
+  onDelete?: (id: string) => Promise<void>;
 }
 
-export function AdminCardEditor({ cards, onSave, onPublish, onSaveAndPublish }: AdminCardEditorProps) {
+export function AdminCardEditor({ cards, onSave, onPublish, onSaveAndPublish, onDelete }: AdminCardEditorProps) {
   const firstCard = cards[0];
   const [selectedId, setSelectedId] = useState<string | null>(firstCard?.id ?? null);
   const [draft, setDraft] = useState<CardDraftInput>(() => firstCard ? draftFromCard(firstCard) : blankDraft());
   const [imagePreview, setImagePreview] = useState(() => firstCard?.hasImage ? adminCardImageUrl(firstCard.id) : '');
   const [query, setQuery] = useState('');
-  const [busyAction, setBusyAction] = useState<'save' | 'publish' | 'save-publish' | null>(null);
+  const [busyAction, setBusyAction] = useState<'save' | 'publish' | 'save-publish' | 'delete' | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [validationDetails, setValidationDetails] = useState<string[]>([]);
   const [formError, setFormError] = useState('');
   const [focusedEffectId, setFocusedEffectId] = useState<string | null>(null);
@@ -43,6 +45,7 @@ export function AdminCardEditor({ cards, onSave, onPublish, onSaveAndPublish }: 
   }, [cards, query]);
 
   const selectCard = (card: CardCatalogEntry) => {
+    setConfirmDelete(false);
     setSelectedId(card.id);
     setDraft(draftFromCard(card));
     setImagePreview(card.hasImage ? adminCardImageUrl(card.id) : '');
@@ -66,7 +69,8 @@ export function AdminCardEditor({ cards, onSave, onPublish, onSaveAndPublish }: 
   const reportFailure = (error: unknown) => {
     const details = error instanceof ApiError ? error.details : [];
     setValidationDetails(details);
-    setFormError(error instanceof Error ? error.message : '操作失败');
+    const messages: Record<string, string> = { CARD_IN_USE: '暂时无法删除这张卡牌', CARD_NOT_FOUND: '卡牌已不存在，请刷新卡牌列表', CARD_NOT_PUBLISHABLE: '还不能发布，请完善下列内容', CARD_EXISTS: '这个卡牌编号已经存在' };
+    setFormError(error instanceof Error ? messages[error.message] ?? error.message : '操作失败');
     const effectDetail = details.find((detail) => detail.startsWith('效果 '));
     setFocusedEffectId(effectDetail?.match(/^效果 ([^：]+)/)?.[1] ?? null);
   };
@@ -89,9 +93,30 @@ export function AdminCardEditor({ cards, onSave, onPublish, onSaveAndPublish }: 
     catch (error) { reportFailure(error); }
     finally { setBusyAction(null); }
   };
+  const deleteCard = async () => {
+    if (!selectedId || !onDelete) return;
+    setBusyAction('delete');
+    try { await onDelete(selectedId); newCard(); setConfirmDelete(false); }
+    catch (error) { reportFailure(error); }
+    finally { setBusyAction(null); }
+  };
 
   return <section className="admin-editor">
-    <header><div><small>ADMIN // CARD REGISTRY</small><h1>卡牌录入</h1></div><div className="draft-state">{selectedId ? '编辑草稿' : '新建草稿'}</div></header>
+    <header><div><h1>卡牌录入</h1><p className="workspace-intro">整理卡牌资料，用规则语言配置效果。</p></div><div className="editor-header-actions"><div className="draft-state">{selectedId ? '编辑草稿' : '新建草稿'}</div>{selectedId && onDelete && <button className="danger-quiet" type="button" disabled={busyAction !== null} onClick={() => { setFormError(''); setValidationDetails([]); setConfirmDelete(true); }}>删除卡牌</button>}</div></header>
+    {confirmDelete && <div className="dialog-backdrop"><section role="dialog" aria-modal="true" aria-labelledby="delete-card-title" className="confirm-dialog" onKeyDown={(event) => {
+      if (event.key === 'Escape' && busyAction === null) setConfirmDelete(false);
+      if (event.key === 'Tab') {
+        const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+        const first = buttons[0]; const last = buttons.at(-1);
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+    }}>
+      <h2 id="delete-card-title">删除「{draft.name}」？</h2>
+      <p>将永久删除这张卡牌的资料、效果和卡图，无法撤销。被牌组使用的卡牌需要先从牌组移除。</p>
+      {formError && <aside className="admin-form-error" role="alert"><b>{formError}</b>{validationDetails.map((detail) => <span key={detail}>{detail}</span>)}</aside>}
+      <div><button type="button" autoFocus disabled={busyAction !== null} onClick={() => setConfirmDelete(false)}>取消</button><button type="button" className="danger-quiet" disabled={busyAction !== null} onClick={() => void deleteCard()}>{busyAction === 'delete' ? '正在删除…' : '确认删除'}</button></div>
+    </section></div>}
     <div className="editor-columns">
       <aside className="admin-card-index">
         <header><div><small>CARD INDEX</small><h2>卡牌索引</h2></div><b>{cards.length}</b></header>
@@ -118,7 +143,7 @@ export function AdminCardEditor({ cards, onSave, onPublish, onSaveAndPublish }: 
         <label>特征（每行一个）<textarea rows={3} value={draft.traits.join('\n')} onChange={(event) => setDraft({ ...draft, traits: lines(event.target.value) })} /></label>
         <label className="image-drop">完整卡图<input type="file" accept="image/png,image/jpeg,image/webp" onChange={image} /><span>{selectedCard?.hasImage ? '已保存卡图；重新选择文件将覆盖' : 'PNG / JPEG / WebP，最大 8 MiB'}</span></label>
         <label>原始规则文本<textarea rows={8} value={draft.text.join('\n')} onChange={(event) => setDraft({ ...draft, text: lines(event.target.value) })} /></label>
-        <label>效果处理器 ID<textarea rows={4} placeholder="每行一个稳定 effectId" value={draft.effectIds.join('\n')} onChange={(event) => setDraft({ ...draft, effectIds: lines(event.target.value) })} /></label>
+        <details className="developer-options"><summary>开发人员设置</summary><label>效果处理器 ID<textarea rows={4} placeholder="每行一个稳定 effectId" value={draft.effectIds.join('\n')} onChange={(event) => setDraft({ ...draft, effectIds: lines(event.target.value) })} /></label></details>
         <EffectBuilder effects={draft.structuredEffects} onChange={(structuredEffects) => setDraft({ ...draft, structuredEffects })} validationDetails={validationDetails} focusedEffectId={focusedEffectId} />
         {formError && <div className="admin-form-error"><b>{formError}</b>{validationDetails.filter((detail) => !detail.startsWith('效果 ')).map((detail) => <span key={detail}>{detail}</span>)}</div>}
         <footer><button type="submit" disabled={busyAction !== null}>{busyAction === 'save' ? '正在保存…' : '保存草稿'}</button><button type="button" disabled={!draft.id || !selectedId || busyAction !== null} onClick={() => void publish()}>{busyAction === 'publish' ? '正在发布…' : '发布卡牌'}</button><button type="button" className="primary-action" disabled={!draft.id || busyAction !== null} onClick={() => void saveAndPublish()}>{busyAction === 'save-publish' ? '正在保存并发布…' : '保存并发布'}</button></footer>

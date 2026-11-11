@@ -104,6 +104,12 @@ test('administrator publishes BP01-007 and two players resolve its live effect',
   const admin = await adminContext.newPage();
   await login(admin, process.env.BOOTSTRAP_ADMIN_USERNAME ?? 'Anonce', adminPassword);
   await syncCurrentCardDraft(adminContext, 'BP01-007');
+  const deleteHeaders = await authHeaders(adminContext);
+  const disposableId = `E2E-DELETE-${Date.now()}`;
+  const disposable = await adminContext.request.post(`${api}/api/admin/cards`, { headers: deleteHeaders, data: { ...getCardDefinition('BP01-007'), id: disposableId } });
+  expect(disposable.status()).toBe(201);
+  expect((await adminContext.request.delete(`${api}/api/admin/cards/${disposableId}`, { headers: deleteHeaders })).status()).toBe(204);
+  expect((await adminContext.request.delete(`${api}/api/admin/cards/${disposableId}`, { headers: deleteHeaders })).status()).toBe(404);
   await admin.reload();
   await admin.getByRole('button', { name: '卡牌录入' }).click();
   await expect(admin.getByRole('heading', { name: '卡牌录入' })).toBeVisible();
