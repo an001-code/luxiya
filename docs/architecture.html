@@ -1,0 +1,1126 @@
+<title>构造体卡牌对战架构</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700;900&display=swap">
+<style>
+  :root {
+    --bg: #f5f3ee;
+    --surface: #fcfbf7;
+    --surface-2: #eeebe3;
+    --ink: #1a222b;
+    --ink-soft: #505c68;
+    --line: #d8d4c9;
+    --line-strong: #b7b2a5;
+    --accent: #b23a2c;
+    --accent-soft: #f0dfd9;
+    --blue: #2d6d99;
+    --blue-soft: #dce9f1;
+    --amber: #a9751b;
+    --amber-soft: #f2e7cf;
+    --green: #3b7358;
+    --code-bg: #ece9e0;
+    --font-body: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
+    --font-display: "Chakra Petch", "Noto Sans SC", sans-serif;
+    --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #10161d;
+      --surface: #161f28;
+      --surface-2: #1d2833;
+      --ink: #e9e5dc;
+      --ink-soft: #a7b2bc;
+      --line: #2b3844;
+      --line-strong: #40505f;
+      --accent: #e0725c;
+      --accent-soft: #3a2320;
+      --blue: #75acd1;
+      --blue-soft: #1b2f3e;
+      --amber: #d3a24d;
+      --amber-soft: #3a2f1b;
+      --green: #7fb394;
+      --code-bg: #1b2530;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #10161d;
+    --surface: #161f28;
+    --surface-2: #1d2833;
+    --ink: #e9e5dc;
+    --ink-soft: #a7b2bc;
+    --line: #2b3844;
+    --line-strong: #40505f;
+    --accent: #e0725c;
+    --accent-soft: #3a2320;
+    --blue: #75acd1;
+    --blue-soft: #1b2f3e;
+    --amber: #d3a24d;
+    --amber-soft: #3a2f1b;
+    --green: #7fb394;
+    --code-bg: #1b2530;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 15.5px;
+    line-height: 1.78;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 0 56px;
+  }
+  ::selection { background: var(--accent-soft); color: var(--ink); }
+  a { color: var(--blue); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  h1, h2, h3, p { margin: 0; }
+  h1, h2 { text-wrap: balance; }
+  code, pre, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  code {
+    background: var(--code-bg);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 0.86em;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    line-height: 1.72;
+    margin: 16px 0 0;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  .shell { max-width: 1180px; margin: 0 auto; }
+
+  .masthead { padding-top: 34px; }
+  .ribbon {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 26px;
+  }
+  .ribbon i {
+    display: block;
+    height: 4px;
+    border-radius: 2px;
+  }
+  .ribbon i:nth-child(1) { width: 46px; background: var(--accent); }
+  .ribbon i:nth-child(2) { width: 28px; background: var(--blue); }
+  .ribbon i:nth-child(3) { width: 18px; background: var(--amber); }
+  .ribbon span {
+    margin-left: 8px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+  }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+  h1 {
+    font-size: clamp(34px, 5.4vw, 54px);
+    line-height: 1.12;
+    letter-spacing: -0.02em;
+    font-weight: 900;
+  }
+  .lede {
+    max-width: 64ch;
+    margin-top: 18px;
+    font-size: 17px;
+    line-height: 1.8;
+    color: var(--ink-soft);
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 22px;
+  }
+  .meta span {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    color: var(--ink-soft);
+    border: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: 999px;
+    padding: 4px 10px;
+  }
+
+  .hero-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(280px, 1fr);
+    gap: 40px;
+    align-items: start;
+    margin-top: 30px;
+  }
+  .phase-panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .panel-label {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: baseline;
+  }
+  .panel-label b { color: var(--accent); font-weight: 600; }
+  .phase-chain {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .phase {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 9px 10px;
+    min-width: 0;
+  }
+  .phase em {
+    display: block;
+    font-family: var(--font-mono);
+    font-style: normal;
+    font-size: 10px;
+    color: var(--ink-soft);
+    letter-spacing: 0.08em;
+  }
+  .phase b { display: block; font-size: 13px; font-weight: 700; line-height: 1.4; }
+  .phase.auto { border-color: var(--blue); }
+  .phase.confirm { border-color: var(--amber); }
+  .panel-note {
+    margin-top: 14px;
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--ink-soft);
+  }
+  .signal-dots {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+  .signal-dots i {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    display: block;
+  }
+  .signal-dots i:nth-child(1) { background: var(--accent); }
+  .signal-dots i:nth-child(2) { background: var(--blue); }
+  .signal-dots i:nth-child(3) { background: var(--amber); }
+  .signal-dots span { margin-left: 4px; }
+  .corruption {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 12px;
+  }
+  .corruption i {
+    flex: 1;
+    height: 7px;
+    border-radius: 2px;
+    border: 1px solid var(--line-strong);
+  }
+  .corruption i.on { background: var(--accent); border-color: var(--accent); }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-top: 44px;
+  }
+  .stat { background: var(--surface); padding: 16px 18px; min-width: 0; }
+  .stat b {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 26px;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+  }
+  .stat span {
+    display: block;
+    margin-top: 4px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    line-height: 1.6;
+  }
+
+  .toc {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 28px;
+    padding-top: 22px;
+    border-top: 1px solid var(--line);
+  }
+  .toc a {
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    text-decoration: none;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: 999px;
+    padding: 5px 11px;
+  }
+  .toc a:hover { color: var(--ink); border-color: var(--line-strong); }
+
+  section { margin-top: 68px; scroll-margin-top: 24px; }
+  .sec-label {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+  h2 {
+    font-size: clamp(24px, 3.2vw, 32px);
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+    font-weight: 900;
+  }
+  .section-intro {
+    max-width: 72ch;
+    margin-top: 12px;
+    color: var(--ink-soft);
+  }
+  h3 {
+    font-size: 16px;
+    line-height: 1.5;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .prose { max-width: 72ch; margin-top: 18px; }
+  .prose p + p { margin-top: 12px; }
+  .prose strong { color: var(--ink); }
+
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px 32px;
+    margin-top: 24px;
+  }
+  .feature {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 10px;
+    min-width: 0;
+  }
+  .feature .tick {
+    width: 8px;
+    height: 8px;
+    margin-top: 9px;
+    background: var(--accent);
+    border-radius: 1px;
+  }
+  .feature b { display: block; font-size: 14.5px; }
+  .feature p { font-size: 13.5px; color: var(--ink-soft); line-height: 1.7; }
+
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    border-radius: 0 8px 8px 0;
+    padding: 14px 18px;
+    margin-top: 22px;
+    color: var(--ink-soft);
+    font-size: 13.5px;
+    line-height: 1.75;
+  }
+  .callout strong { color: var(--ink); }
+
+  .diagram {
+    margin: 24px 0 0;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px 12px 6px;
+  }
+  .diagram-scroll { overflow-x: auto; }
+  .diagram svg { display: block; width: 100%; min-width: 840px; height: auto; }
+  figcaption {
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--ink-soft);
+    padding: 10px 6px 6px;
+  }
+  .diagram figcaption b { color: var(--ink); }
+
+  .d-zone { fill: var(--surface); stroke: var(--line); stroke-width: 1; }
+  .d-zone-label { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.12em; fill: var(--ink-soft); text-transform: uppercase; }
+  .d-node { fill: var(--surface-2); stroke: var(--line-strong); stroke-width: 1; }
+  .d-node-accent { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.1; }
+  .d-node-blue { fill: var(--blue-soft); stroke: var(--blue); stroke-width: 1.1; }
+  .d-title { font-family: var(--font-body); font-size: 13.5px; font-weight: 700; fill: var(--ink); }
+  .d-sub { font-family: var(--font-mono); font-size: 10.5px; fill: var(--ink-soft); }
+  .d-line { stroke: var(--ink-soft); stroke-width: 1.35; fill: none; }
+  .d-line-accent { stroke: var(--accent); stroke-width: 1.5; fill: none; }
+  .d-dash { stroke: var(--ink-soft); stroke-width: 1.1; fill: none; stroke-dasharray: 5 4; }
+  .d-label { font-family: var(--font-body); font-size: 10.5px; fill: var(--ink-soft); }
+  .d-label-strong { font-family: var(--font-mono); font-size: 10px; fill: var(--accent); letter-spacing: 0.04em; }
+  .d-life { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 4 4; }
+
+  .table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    margin-top: 22px;
+    background: var(--surface);
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.65; }
+  th, td { padding: 10px 14px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+  th {
+    background: var(--surface-2);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  tr:last-child td { border-bottom: 0; }
+  td code { white-space: nowrap; }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 28px 40px;
+    margin-top: 26px;
+  }
+  .two-col > div { min-width: 0; }
+  .list-plain { list-style: none; padding: 0; margin: 10px 0 0; }
+  .list-plain li {
+    position: relative;
+    padding-left: 16px;
+    margin-top: 10px;
+    font-size: 13.5px;
+    line-height: 1.72;
+    color: var(--ink-soft);
+  }
+  .list-plain li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 10px;
+    width: 5px;
+    height: 5px;
+    background: var(--line-strong);
+    border-radius: 50%;
+  }
+  .list-plain li b { color: var(--ink); font-weight: 600; }
+
+  .run-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    gap: 32px;
+    align-items: start;
+    margin-top: 24px;
+  }
+  .run-grid h3 { margin-top: 0; }
+  .ports {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .ports span {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 4px 8px;
+    color: var(--ink-soft);
+    background: var(--surface);
+  }
+
+  footer {
+    margin-top: 76px;
+    padding-top: 22px;
+    border-top: 1px solid var(--line);
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  @media (max-width: 900px) {
+    .hero-grid { grid-template-columns: 1fr; gap: 28px; }
+    .run-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 720px) {
+    .feature-grid, .two-col { grid-template-columns: 1fr; }
+    .diagram svg { min-width: 760px; }
+  }
+  @media (max-width: 430px) {
+    .phase-chain { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .stat b { font-size: 22px; }
+    .diagram svg { min-width: 700px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { scroll-behavior: auto !important; }
+  }
+</style>
+
+<div class="shell">
+  <header class="masthead">
+    <div class="ribbon" aria-hidden="true">
+      <i></i><i></i><i></i><span>PGR CARD BATTLE / MVP</span>
+    </div>
+    <div class="eyebrow">ARCHITECTURE BRIEF · 2026-11-11</div>
+    <h1>构造体卡牌对战架构</h1>
+    <p class="lede">桌面端优先的双人联机卡牌对战垂直切片。浏览器只渲染玩家视图、提交服务端给出的合法动作；Node 进程持有权威对局状态，纯函数规则引擎负责裁定，MySQL 保存账号、卡牌与牌组。</p>
+    <div class="meta">
+      <span>feat/card-battle-mvp</span>
+      <span>commit 71990af</span>
+      <span>npm workspaces</span>
+      <span>TypeScript strict</span>
+      <span>React 19 + Vite</span>
+      <span>Fastify + Socket.IO</span>
+      <span>MySQL 8</span>
+    </div>
+
+    <div class="hero-grid">
+      <div>
+        <p class="prose" style="margin-top:0">这是一个先跑通完整垂直切片、再逐张补卡牌规则的工程。账号、卡库、牌组、六位房间码、权威对局、可视化录卡都已在同一仓库内闭环，复杂卡牌规则通过稳定的 <code>handlerId</code> 接入，而不是在客户端猜测。</p>
+        <div class="feature-grid">
+          <div class="feature"><span class="tick"></span><div><b>账号与会话</b><p>scrypt 密码哈希，会话令牌只存 SHA-256 摘要，HttpOnly 会话 Cookie。</p></div></div>
+          <div class="feature"><span class="tick"></span><div><b>卡牌管理</b><p>管理员录入卡图、规则文本与结构化效果；发布前强制校验。</p></div></div>
+          <div class="feature"><span class="tick"></span><div><b>牌组构筑</b><p>恰好 50 张、同编号最多 4 张、红蓝黄信号球各 4 张。</p></div></div>
+          <div class="feature"><span class="tick"></span><div><b>联机对局</b><p>双座位、准备开局、权威命令、断线暂停与 10 分钟房间过期。</p></div></div>
+          <div class="feature"><span class="tick"></span><div><b>对局界面</b><p>双方资源区、五格战场、处理区、侵蚀条、决策弹窗、日志与墓地。</p></div></div>
+          <div class="feature"><span class="tick"></span><div><b>效果录入</b><p>能力 → 触发 → 条件 → 代价 → 目标 → 动作 → 持续时间的可视化编辑。</p></div></div>
+        </div>
+        <div class="callout"><strong>核心约束：规则只在服务端执行。</strong>浏览器引用的 <code>@pgr/cards</code> 只用于卡面、名称与规则文本展示，不参与裁定；客户端能做什么，由服务端下发的 <code>legalActions</code> 决定。</div>
+      </div>
+
+      <aside class="phase-panel" aria-label="对局相位链">
+        <div class="panel-label"><span>对局相位链 / PHASE BUS</span><b>6 PHASES</b></div>
+        <div class="phase-chain">
+          <div class="phase"><em>01</em><b>起手调度</b></div>
+          <div class="phase auto"><em>02</em><b>竖直阶段</b></div>
+          <div class="phase auto"><em>03</em><b>抽牌阶段</b></div>
+          <div class="phase confirm"><em>04</em><b>费用填充</b></div>
+          <div class="phase"><em>05</em><b>主要阶段</b></div>
+          <div class="phase"><em>06</em><b>结束阶段</b></div>
+        </div>
+        <p class="panel-note">在线模式由服务端自动推进 02 → 03；抽牌后玩家确认，再进入费用填充。蓝框为自动推进，黄框为需要确认的节点。</p>
+        <div class="signal-dots"><i></i><i></i><i></i><span>信号球 · 红 / 蓝 / 黄，各 4 张</span></div>
+        <div class="corruption" aria-label="侵蚀刻度 0 到 7">
+          <i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+        <p class="panel-note" style="margin-top:8px">侵蚀计数 0–7；达到 7，或牌组与墓地同时耗尽，判负。</p>
+      </aside>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><b>2 + 3</b><span>应用与共享包<br>web · server / protocol · cards · game-core</span></div>
+      <div class="stat"><b>15</b><span>游戏命令<br>服务端逐条校验，客户端不能自创动作</span></div>
+      <div class="stat"><b>25</b><span>自定义效果处理器<br>复杂卡牌规则通过 handlerId 接入</span></div>
+      <div class="stat"><b>5</b><span>MySQL 表<br>users · sessions · cards · decks · deck_cards</span></div>
+      <div class="stat"><b>139</b><span>单元 / 组件测试<br>另有 5 个 Playwright E2E 场景</span></div>
+    </div>
+
+    <nav class="toc" aria-label="页面目录">
+      <a href="#overview">总览</a>
+      <a href="#system">系统全景</a>
+      <a href="#flow">命令链路</a>
+      <a href="#effects">效果结算</a>
+      <a href="#boundary">信息边界</a>
+      <a href="#modules">模块地图</a>
+      <a href="#data">数据模型</a>
+      <a href="#limits">扩展与边界</a>
+      <a href="#run">运行验证</a>
+    </nav>
+  </header>
+
+  <main>
+    <section id="overview">
+      <div class="sec-label">01 / OVERVIEW</div>
+      <h2>一条命令，两种视图</h2>
+      <p class="section-intro">整套系统围绕一个很窄的接口运转：客户端发送命令，服务端返回各自可见的玩家视图。规则、随机数、隐藏信息与合法性判断全部在服务端一侧完成。</p>
+      <div class="prose">
+        <p>对局状态是一个可序列化的 <code>GameState</code>：牌组、手牌、墓地、处理区、五格战场、信号球、费用区、侵蚀值、效果栈、待决选择、攻击响应窗口与已处理命令 ID。规则引擎是纯函数，输入旧状态和命令，输出新状态；随机数通过 <code>Rng</code> 注入，因此同一种子可以复现整局。</p>
+        <p>服务端不会把 <code>GameState</code> 直接发给浏览器。它调用 <code>createPlayerView(state, viewerId)</code>，为每个玩家裁出只包含其可见信息的 <code>PlayerView</code>。这就是信息边界，也是“薄客户端”的前提。</p>
+      </div>
+    </section>
+
+    <section id="system">
+      <div class="sec-label">02 / SYSTEM MAP</div>
+      <h2>三个运行时边界</h2>
+      <p class="section-intro">浏览器、Node 进程、MySQL 构成三个运行时边界；三个共享包是编译期依赖，不单独部署。</p>
+
+      <figure class="diagram">
+        <div class="diagram-scroll">
+          <svg viewBox="0 0 1120 760" role="img" aria-label="系统组件图：浏览器通过 REST 与 Socket.IO 连接 Node 服务，服务端使用 game-core 规则引擎，并通过 AppRepository 访问 MySQL。">
+            <defs>
+              <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-soft)"/>
+              </marker>
+              <marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"/>
+              </marker>
+            </defs>
+
+            <rect class="d-zone" x="20" y="16" width="1080" height="152" rx="16"/>
+            <text class="d-zone-label" x="44" y="42">CLIENT // 浏览器 · React 19 + Vite</text>
+            <text class="d-label-strong" x="1076" y="42" text-anchor="end">薄客户端 · 无规则推演</text>
+
+            <rect class="d-node" x="44" y="58" width="300" height="92" rx="8"/>
+            <text class="d-title" x="62" y="86">平台界面</text>
+            <text class="d-sub" x="62" y="108">对战大厅 · 卡库</text>
+            <text class="d-sub" x="62" y="126">牌组编辑 · 卡牌录入</text>
+
+            <rect class="d-node" x="364" y="58" width="340" height="92" rx="8"/>
+            <text class="d-title" x="382" y="86">战术指挥台</text>
+            <text class="d-sub" x="382" y="108">Battlefield · 弹窗 · 动画</text>
+            <text class="d-sub" x="382" y="126">把 PlayerView 画成战场</text>
+
+            <rect class="d-node" x="724" y="58" width="352" height="92" rx="8"/>
+            <text class="d-title" x="742" y="86">socket.io-client</text>
+            <text class="d-sub" x="742" y="108">只提交 view.legalActions</text>
+            <text class="d-sub" x="742" y="126">只渲染服务端快照</text>
+
+            <rect class="d-zone" x="20" y="192" width="716" height="352" rx="16"/>
+            <text class="d-zone-label" x="44" y="218">SERVER // NODE 进程 · Fastify + Socket.IO · :3001</text>
+            <text class="d-label-strong" x="712" y="218" text-anchor="end">权威状态</text>
+
+            <rect class="d-node" x="44" y="234" width="304" height="88" rx="8"/>
+            <text class="d-title" x="62" y="262">HTTP API</text>
+            <text class="d-sub" x="62" y="284">/api/auth · /api/cards</text>
+            <text class="d-sub" x="62" y="302">/api/decks · /api/rooms</text>
+
+            <rect class="d-node" x="368" y="234" width="344" height="88" rx="8"/>
+            <text class="d-title" x="386" y="262">Socket.IO 网关</text>
+            <text class="d-sub" x="386" y="284">room:resume · room:ready</text>
+            <text class="d-sub" x="386" y="302">game:command → room:snapshot</text>
+
+            <rect class="d-node" x="44" y="344" width="304" height="76" rx="8"/>
+            <text class="d-title" x="62" y="370">鉴权 / 卡牌 / 牌组服务</text>
+            <text class="d-sub" x="62" y="392">scrypt · 发布校验 · 牌组合法性</text>
+
+            <rect class="d-node-accent" x="368" y="344" width="344" height="76" rx="8"/>
+            <text class="d-title" x="386" y="370">RoomManager（内存）</text>
+            <text class="d-sub" x="386" y="392">座位 · 准备 · 断线 · 计时器 · RNG</text>
+
+            <rect class="d-node" x="44" y="450" width="668" height="68" rx="8"/>
+            <text class="d-title" x="62" y="476">AppRepository 接口</text>
+            <text class="d-sub" x="62" y="498">MySQL 实现（生产） · 内存实现（测试）</text>
+
+            <rect class="d-zone" x="20" y="574" width="716" height="166" rx="16"/>
+            <text class="d-zone-label" x="44" y="600">SHARED // 共享包 · 编译期依赖</text>
+
+            <rect class="d-node" x="44" y="616" width="204" height="104" rx="8"/>
+            <text class="d-title" x="62" y="644">protocol</text>
+            <text class="d-sub" x="62" y="666">GameCommand · PlayerView</text>
+            <text class="d-sub" x="62" y="684">StructuredEffect DSL</text>
+            <text class="d-sub" x="62" y="702">Socket 事件类型</text>
+
+            <rect class="d-node" x="268" y="616" width="204" height="104" rx="8"/>
+            <text class="d-title" x="286" y="644">cards</text>
+            <text class="d-sub" x="286" y="666">20 张正式卡表</text>
+            <text class="d-sub" x="286" y="684">+ 8 张 DEV 测试卡</text>
+            <text class="d-sub" x="286" y="702">effectId ↔ 结构化效果</text>
+
+            <rect class="d-node-blue" x="492" y="616" width="220" height="104" rx="8"/>
+            <text class="d-title" x="510" y="644">game-core</text>
+            <text class="d-sub" x="510" y="666">纯函数状态机</text>
+            <text class="d-sub" x="510" y="684">applyCommand · getLegalActions</text>
+            <text class="d-sub" x="510" y="702">createPlayerView · 效果栈</text>
+
+            <rect class="d-zone" x="764" y="192" width="336" height="548" rx="16"/>
+            <text class="d-zone-label" x="788" y="218">PERSISTENCE // MySQL 8</text>
+
+            <rect class="d-node" x="788" y="238" width="288" height="54" rx="7"/>
+            <text class="d-title" x="804" y="261">users</text>
+            <text class="d-sub" x="804" y="280">账号 · 角色 · 密码哈希</text>
+
+            <rect class="d-node" x="788" y="302" width="288" height="54" rx="7"/>
+            <text class="d-title" x="804" y="325">sessions</text>
+            <text class="d-sub" x="804" y="344">令牌摘要 · 过期时间</text>
+
+            <rect class="d-node" x="788" y="366" width="288" height="54" rx="7"/>
+            <text class="d-title" x="804" y="389">cards</text>
+            <text class="d-sub" x="804" y="408">结构化效果 JSON · 卡图 BLOB</text>
+
+            <rect class="d-node" x="788" y="430" width="288" height="54" rx="7"/>
+            <text class="d-title" x="804" y="453">decks</text>
+            <text class="d-sub" x="804" y="472">启用状态 · 校验结果</text>
+
+            <rect class="d-node" x="788" y="494" width="288" height="54" rx="7"/>
+            <text class="d-title" x="804" y="517">deck_cards</text>
+            <text class="d-sub" x="804" y="536">牌组 ↔ 卡牌数量</text>
+
+            <rect class="d-node-accent" x="788" y="576" width="288" height="96" rx="8"/>
+            <text class="d-title" x="804" y="602">对局状态不落库</text>
+            <text class="d-sub" x="804" y="624">房间与 GameState 只在进程内存</text>
+            <text class="d-sub" x="804" y="642">服务重启即丢失 · 单实例假设</text>
+            <text class="d-sub" x="804" y="660">卡图以 LONGBLOB 存于 cards</text>
+
+            <path class="d-line" d="M194 150 V234" marker-end="url(#arrow)"/>
+            <text class="d-label" x="204" y="196">REST + HttpOnly Cookie</text>
+
+            <path class="d-line" d="M900 150 L700 234" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+            <text class="d-label" x="800" y="196" text-anchor="middle">命令 ↕ 快照</text>
+
+            <path class="d-line" d="M196 322 V344" marker-end="url(#arrow)"/>
+            <path class="d-line" d="M348 278 L420 344" marker-end="url(#arrow)"/>
+            <text class="d-label" x="356" y="318">房间路由</text>
+
+            <path class="d-line" d="M540 322 V344" marker-end="url(#arrow)"/>
+
+            <path class="d-line" d="M196 420 V450" marker-end="url(#arrow)"/>
+            <text class="d-label" x="206" y="440">读写</text>
+
+            <path class="d-line" d="M378 518 V532 H744 V330 H764" marker-end="url(#arrow)"/>
+            <text class="d-label" x="560" y="525">SQL / mysql2</text>
+
+            <path class="d-dash" d="M108 616 V544" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+            <text class="d-label" x="118" y="562">类型契约</text>
+
+            <path class="d-line" d="M602 616 V544" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+            <text class="d-label" x="612" y="562">GameState ↔ PlayerView</text>
+
+            <path class="d-line" d="M248 668 H268" marker-end="url(#arrow)"/>
+            <path class="d-line" d="M472 668 H492" marker-end="url(#arrow)"/>
+          </svg>
+        </div>
+        <figcaption><b>系统组件图。</b>HTTP 与 Socket.IO 挂在同一个 Fastify server 上；房间、座位与对局状态保存在 <code>RoomManager</code> 内存中，只有账号、会话、卡牌、牌组进入 MySQL。共享包不部署，只被编译进两端。</figcaption>
+      </figure>
+
+      <div class="prose">
+        <p>依赖方向是单向的：<code>protocol ← cards ← game-core ← server</code>，以及 <code>protocol + cards → web</code>。<code>game-core</code> 不依赖 Fastify、MySQL 或 React，因此规则测试可以直接在 Vitest 里跑，不需要启动服务或数据库。</p>
+      </div>
+      <pre><code>packages/protocol   领域类型 · 命令 · 视图 · 效果 DSL
+packages/cards      静态卡表 · 开发牌组 · effectId 映射
+packages/game-core  状态机 · 合法动作 · 视图过滤 · 效果解释器
+apps/server         Fastify HTTP + Socket.IO + 房间 + 持久化
+apps/web            React 战术指挥台 + 卡牌管理</code></pre>
+    </section>
+
+    <section id="flow">
+      <div class="sec-label">03 / COMMAND FLOW</div>
+      <h2>一次命令的往返</h2>
+      <p class="section-intro">对局中几乎所有交互都走同一条路径：客户端提交命令，网关校验身份，RoomManager 调用规则引擎，规则引擎产出新状态，服务端再为两名玩家分别裁出视图。</p>
+
+      <figure class="diagram">
+        <div class="diagram-scroll">
+          <svg viewBox="0 0 1120 430" role="img" aria-label="命令往返时序图：玩家 A 经 Socket.IO 网关发送 game:command，RoomManager 调用 game-core 的 applyCommand，随后为两名玩家生成 PlayerView 并广播快照。">
+            <defs>
+              <marker id="seq-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-soft)"/>
+              </marker>
+              <marker id="seq-arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"/>
+              </marker>
+            </defs>
+
+            <rect class="d-node" x="24" y="18" width="170" height="46" rx="7"/>
+            <text class="d-title" x="109" y="47" text-anchor="middle">玩家 A · 浏览器</text>
+            <rect class="d-node" x="260" y="18" width="180" height="46" rx="7"/>
+            <text class="d-title" x="350" y="47" text-anchor="middle">Socket.IO 网关</text>
+            <rect class="d-node-accent" x="530" y="18" width="180" height="46" rx="7"/>
+            <text class="d-title" x="620" y="47" text-anchor="middle">RoomManager</text>
+            <rect class="d-node-blue" x="780" y="18" width="170" height="46" rx="7"/>
+            <text class="d-title" x="865" y="47" text-anchor="middle">game-core</text>
+            <rect class="d-node" x="960" y="18" width="136" height="46" rx="7"/>
+            <text class="d-title" x="1028" y="47" text-anchor="middle">玩家 B</text>
+
+            <line class="d-life" x1="109" y1="64" x2="109" y2="398"/>
+            <line class="d-life" x1="350" y1="64" x2="350" y2="398"/>
+            <line class="d-life" x1="620" y1="64" x2="620" y2="398"/>
+            <line class="d-life" x1="865" y1="64" x2="865" y2="398"/>
+            <line class="d-life" x1="1028" y1="64" x2="1028" y2="398"/>
+
+            <text class="d-label" x="116" y="100">game:command { type, commandId, expectedVersion }</text>
+            <line class="d-line" x1="109" y1="108" x2="350" y2="108" marker-end="url(#seq-arrow)"/>
+
+            <text class="d-label" x="360" y="138">校验房间、座位与 token</text>
+            <line class="d-line" x1="350" y1="146" x2="620" y2="146" marker-end="url(#seq-arrow)"/>
+
+            <text class="d-label" x="630" y="176">applyCommand(state, command, rng)</text>
+            <line class="d-line" x1="620" y1="184" x2="865" y2="184" marker-end="url(#seq-arrow)"/>
+
+            <text class="d-label" x="630" y="214">新 GameState · version + 1 · rejection</text>
+            <line class="d-dash" x1="865" y1="222" x2="620" y2="222" marker-end="url(#seq-arrow)"/>
+
+            <text class="d-label" x="360" y="252">createPlayerView(A) / createPlayerView(B)</text>
+            <line class="d-dash" x1="620" y1="260" x2="350" y2="260" marker-end="url(#seq-arrow)"/>
+
+            <text class="d-label" x="150" y="290">room:snapshot (A)</text>
+            <line class="d-line" x1="350" y1="298" x2="109" y2="298" marker-end="url(#seq-arrow-accent)"/>
+
+            <text class="d-label" x="640" y="330">room:snapshot (B)</text>
+            <line class="d-line" x1="350" y1="338" x2="1028" y2="338" marker-end="url(#seq-arrow-accent)"/>
+
+            <rect class="d-node" x="24" y="358" width="640" height="56" rx="7"/>
+            <text class="d-sub" x="40" y="380">拒绝：command:rejected 只回发起方，状态不变</text>
+            <text class="d-sub" x="40" y="398">服务端推进：1.1 秒后 advanceProcessing；断线时 status = paused</text>
+
+            <rect class="d-node" x="700" y="358" width="396" height="56" rx="7"/>
+            <text class="d-sub" x="716" y="380">commandId 幂等 · expectedVersion 乐观并发</text>
+            <text class="d-sub" x="716" y="398">客户端从不自行推演规则</text>
+          </svg>
+        </div>
+        <figcaption><b>命令往返。</b>同一条路径同时承担合法性校验、状态推进与按玩家裁剪视图。被拒绝的命令不会改变房间状态。</figcaption>
+      </figure>
+
+      <div class="prose">
+        <p>命令的校验顺序是固定的：先查 <code>commandId</code> 是否已处理，再查 <code>expectedVersion</code>，然后依次检查对局状态、玩家身份、待确认抽牌、处理区停留和待决选择。起手调度是唯一允许“跨版本提交”的例外，因为双方可以同时调度。</p>
+        <p>服务端还拥有两类客户端无法触发的推进：<code>advanceAutomaticPhases</code> 自动把竖直阶段推进到抽牌与费用阶段；<code>advanceProcessing</code> 在处理区卡牌公开约 1.1 秒后继续结算。刷新页面或断线重连不会重复抽同一次牌，因为待抽牌记录在服务端状态里。</p>
+      </div>
+    </section>
+
+    <section id="effects">
+      <div class="sec-label">04 / EFFECT ENGINE</div>
+      <h2>效果是一个可暂停的栈</h2>
+      <p class="section-intro">卡牌规则被拆成结构化效果：能力类型、触发事件、条件、代价、目标、动作与持续时间。结算器按栈逐帧推进，需要玩家选择时暂停，收到决定后从原位置继续。</p>
+
+      <figure class="diagram">
+        <div class="diagram-scroll">
+          <svg viewBox="0 0 1120 470" role="img" aria-label="效果结算流水线：触发源进入 enqueueEffects，压入 LIFO 效果栈，EffectFrame 依次处理 targets、costs、actions，需要选择时暂停等待客户端决定，复杂规则交给自定义处理器。">
+            <defs>
+              <marker id="fx-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-soft)"/>
+              </marker>
+              <marker id="fx-arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"/>
+              </marker>
+            </defs>
+
+            <rect class="d-node" x="20" y="46" width="178" height="96" rx="8"/>
+            <text class="d-title" x="38" y="74">触发源</text>
+            <text class="d-sub" x="38" y="96">出场 / 自动 / 瞬时</text>
+            <text class="d-sub" x="38" y="114">充能 / 起动</text>
+
+            <rect class="d-node" x="232" y="46" width="200" height="96" rx="8"/>
+            <text class="d-title" x="250" y="74">enqueueEffects</text>
+            <text class="d-sub" x="250" y="96">条件检查通过才入栈</text>
+            <text class="d-sub" x="250" y="114">LIFO 效果栈</text>
+
+            <rect class="d-node-accent" x="466" y="46" width="220" height="96" rx="8"/>
+            <text class="d-title" x="484" y="74">EffectFrame</text>
+            <text class="d-sub" x="484" y="96">targets → costs → actions</text>
+            <text class="d-sub" x="484" y="114">逐帧结算</text>
+
+            <rect class="d-node" x="720" y="46" width="190" height="96" rx="8"/>
+            <text class="d-title" x="738" y="74">状态变更</text>
+            <text class="d-sub" x="738" y="96">区域移动 · 修饰符</text>
+            <text class="d-sub" x="738" y="114">事件写入</text>
+
+            <rect class="d-node" x="944" y="46" width="156" height="96" rx="8"/>
+            <text class="d-title" x="962" y="74">可能再次触发</text>
+            <text class="d-sub" x="962" y="96">连锁结算</text>
+            <text class="d-sub" x="962" y="114">新帧压栈</text>
+
+            <line class="d-line" x1="198" y1="94" x2="232" y2="94" marker-end="url(#fx-arrow)"/>
+            <line class="d-line" x1="432" y1="94" x2="466" y2="94" marker-end="url(#fx-arrow)"/>
+            <line class="d-line" x1="686" y1="94" x2="720" y2="94" marker-end="url(#fx-arrow)"/>
+            <line class="d-line" x1="910" y1="94" x2="944" y2="94" marker-end="url(#fx-arrow)"/>
+
+            <text class="d-label" x="232" y="166">条件不满足：不入栈，直接跳过</text>
+
+            <rect class="d-node" x="466" y="220" width="260" height="110" rx="8"/>
+            <text class="d-title" x="484" y="248">pendingDecision</text>
+            <text class="d-sub" x="484" y="270">选牌 / 选项 / 排序</text>
+            <text class="d-sub" x="484" y="288">只把合法选项发给当事人</text>
+            <text class="d-sub" x="484" y="306">RESOLVE_EFFECT_DECISION</text>
+
+            <rect class="d-node-blue" x="766" y="220" width="334" height="110" rx="8"/>
+            <text class="d-title" x="784" y="248">custom handler registry</text>
+            <text class="d-sub" x="784" y="270">25 个已注册处理器</text>
+            <text class="d-sub" x="784" y="288">haste · evolve_lucia · sealed_blade</text>
+            <text class="d-sub" x="784" y="306">可返回 waiting，进入同一决策回路</text>
+
+            <line class="d-line-accent" x1="556" y1="142" x2="556" y2="220" marker-end="url(#fx-arrow-accent)"/>
+            <text class="d-label" x="566" y="188">需要选择</text>
+            <line class="d-dash" x1="700" y1="220" x2="660" y2="142" marker-end="url(#fx-arrow)"/>
+            <text class="d-label" x="676" y="188">决定返回</text>
+
+            <line class="d-line" x1="800" y1="142" x2="800" y2="220" marker-end="url(#fx-arrow)"/>
+            <text class="d-label" x="810" y="188">动作 = 自定义</text>
+            <line class="d-dash" x1="1040" y1="220" x2="1000" y2="142" marker-end="url(#fx-arrow)"/>
+            <text class="d-label" x="1000" y="188">继续</text>
+
+            <rect class="d-node" x="20" y="372" width="1080" height="66" rx="8"/>
+            <text class="d-sub" x="38" y="398">帧结束：清理 duration = instant 的修饰符，再弹栈。</text>
+            <text class="d-sub" x="38" y="418">动作内再次 enqueueEffects 时，新帧压栈，当前帧稍后从下一个动作继续。</text>
+          </svg>
+        </div>
+        <figcaption><b>效果流水线。</b>结算不是一次函数调用，而是一个可以暂停、恢复、嵌套的栈。玩家的选择只暂停栈顶帧，不会丢失已经支付的代价。</figcaption>
+      </figure>
+
+      <div class="prose">
+        <p>举个最小例子：一张【出】能力“丢弃 1 张手牌，选择我方战场 1 张角色，本回合 PP + 2000”，在数据里就是一段可直接序列化的结构。</p>
+      </div>
+      <pre><code>{
+  "id": "effect-1",
+  "ability": "enter",
+  "conditions": [],
+  "costs": [{ "kind": "discard", "player": "self", "amount": { "kind": "fixed", "value": 1 } }],
+  "targets": [{ "id": "target-1", "kind": "cards", "player": "self", "zone": "field", "min": 1, "max": 1 }],
+  "actions": [{
+    "kind": "modify-stat", "targetId": "target-1", "stat": "pp",
+    "operation": "add", "value": { "kind": "fixed", "value": 2000 },
+    "duration": { "kind": "turn" }
+  }]
+}</code></pre>
+      <div class="prose">
+        <p>规则引擎会先把目标与代价做成待决选择；玩家确认后才支付代价、执行动作。对于 DSL 表达不了的规则，动作或条件使用 <code>custom</code> 节点，由 <code>registeredCustomEffectHandlers</code> 中的稳定 ID 接入。发布卡牌时，服务端会检查每个处理器已注册、每个动作引用的目标 ID 已定义，避免“看起来能发布、对局里却静默失效”。</p>
+      </div>
+    </section>
+
+    <section id="boundary">
+      <div class="sec-label">05 / INFORMATION BOUNDARY</div>
+      <h2>隐藏信息只有一个出口</h2>
+      <p class="section-intro">服务端保存完整状态，但广播前一定经过 <code>createPlayerView</code>。隐藏手牌、牌组顺序、暗费真实卡面与只属于当事人的决策，都不会进入对手的视图。</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>数据</th><th>自己</th><th>对手</th><th>实现位置</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>手牌</td><td>完整 <code>CardInstance[]</code></td><td>仅 <code>{ count }</code></td><td><code>boardView(state, player, own)</code></td></tr>
+            <tr><td>牌组</td><td>仅数量</td><td>仅数量</td><td><code>PlayerBoardView.deck</code></td></tr>
+            <tr><td>暗费</td><td>可查看真实卡面</td><td><code>cardId: null</code></td><td><code>publicCard(..., hideIdentity)</code></td></tr>
+            <tr><td>待决选择</td><td>完整选项</td><td><code>null</code></td><td><code>pendingDecision.playerId</code></td></tr>
+            <tr><td>事件</td><td>仅 <code>public: true</code></td><td>仅 <code>public: true</code></td><td><code>events.filter(...)</code></td></tr>
+            <tr><td>战斗 / 优先级窗口</td><td>双方可见</td><td>双方可见</td><td><code>pendingAttack</code> · <code>priorityWindow</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <p>卡图也有两条独立入口：<code>/api/cards/:id/image</code> 只返回已发布卡牌；<code>/api/admin/cards/:id/image</code> 需要管理员身份，可以读取草稿卡图。这样草稿与未完成卡面不会从公开接口泄漏。</p>
+        <p>客户端仍然会引用静态卡表来显示名称与规则文本，但战斗数值、命中判定、可选目标与费用是否足够，全部来自服务端视图与 <code>legalActions</code>。即使有人修改前端，也无法让规则引擎接受一个非法命令。</p>
+      </div>
+    </section>
+
+    <section id="modules">
+      <div class="sec-label">06 / MODULE MAP</div>
+      <h2>每个包只做一件事</h2>
+      <p class="section-intro">工作区按运行时职责切分，而不是按页面切分。规则、卡表、契约、服务与界面各自有清晰的所有者。</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>路径</th><th>职责</th><th>关键入口</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>packages/protocol</code></td>
+              <td>共享契约：领域类型、<code>GameCommand</code>、<code>PlayerView</code>、结构化效果 DSL、Socket 事件。</td>
+              <td><code>src/index.ts</code><br><code>src/effects.ts</code></td>
+            </tr>
+            <tr>
+              <td><code>packages/cards</code></td>
+              <td>静态卡表、开发牌组、<code>effectId</code> 与结构化效果的映射，以及未覆盖效果的处理器占位。</td>
+              <td><code>src/index.ts</code><br><code>src/current-card-effects.ts</code></td>
+            </tr>
+            <tr>
+              <td><code>packages/game-core</code></td>
+              <td>纯函数规则引擎：创建对局、合法动作、命令结算、视图过滤、效果栈与自定义处理器。</td>
+              <td><code>src/index.ts</code><br><code>src/effects/interpreter.ts</code><br><code>src/effects/state.ts</code></td>
+            </tr>
+            <tr>
+              <td><code>apps/server</code></td>
+              <td>Fastify HTTP API、Socket.IO 权威网关、房间生命周期、鉴权 / 卡牌 / 牌组服务、MySQL 持久化。</td>
+              <td><code>src/server.ts</code><br><code>src/room-manager.ts</code><br><code>src/persistence/</code></td>
+            </tr>
+            <tr>
+              <td><code>apps/web</code></td>
+              <td>React SPA：登录、对战大厅、卡库、牌组编辑、管理员录卡、战术指挥台与效果编辑器。</td>
+              <td><code>src/App.tsx</code><br><code>src/Battlefield.tsx</code><br><code>src/effects/EffectBuilder.tsx</code></td>
+            </tr>
+            <tr>
+              <td><code>tests/e2e</code></td>
+              <td>Playwright 端到端：真实 MySQL、独立端口、管理员发布、双玩家房间、隐藏信息与布局。</td>
+              <td><code>*.spec.ts</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <p>界面侧不是一个大组件：<code>Battlefield</code> 负责战场与主操作，<code>BattleChoices</code> 承担出场 / 攻击 / 防御 / 装备选择，<code>OrderCardsDialog</code> 处理排序，<code>BattleMotion</code> 处理抽弃牌动画，<code>AdminCardEditor</code> 与 <code>EffectBuilder</code> 负责录卡。服务端侧同理：路由只做鉴权与错误映射，业务在 <code>AuthService</code>、<code>CardService</code>、<code>DeckService</code> 与 <code>RoomManager</code>。</p>
+      </div>
+    </section>
+
+    <section id="data">
+      <div class="sec-label">07 / DATA MODEL</div>
+      <h2>五张表，两个持久化实现</h2>
+      <p class="section-intro">账号、会话、卡牌与牌组进入 MySQL；对局状态刻意不落库，由进程内存托管。仓储接口同时提供 MySQL 与内存实现，后者用于测试与无数据库启动。</p>
+
+      <figure class="diagram">
+        <div class="diagram-scroll">
+          <svg viewBox="0 0 1120 460" role="img" aria-label="数据模型图：users 一对多 sessions 与 decks，decks 与 cards 通过 deck_cards 多对多关联。">
+            <defs>
+              <marker id="er-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-soft)"/>
+              </marker>
+            </defs>
+
+            <rect class="d-node" x="40" y="50" width="260" height="160" rx="8"/>
+            <text class="d-title" x="58" y="78">users</text>
+            <line class="d-line" x1="58" y1="90" x2="282" y2="90" stroke-width="1"/>
+            <text class="d-sub" x="58" y="114">id · PK</text>
+            <text class="d-sub" x="58" y="136">username_key · UNIQUE</text>
+            <text class="d-sub" x="58" y="158">password_hash · scrypt</text>
+            <text class="d-sub" x="58" y="180">role · player / admin</text>
+
+            <rect class="d-node" x="40" y="290" width="260" height="110" rx="8"/>
+            <text class="d-title" x="58" y="318">sessions</text>
+            <line class="d-line" x1="58" y1="330" x2="282" y2="330" stroke-width="1"/>
+            <text class="d-sub" x="58" y="354">token_hash · PK · SHA-256</text>
+            <text class="d-sub" x="58" y="376">user_id · FK → users</text>
+            <text class="d-sub" x="58" y="396">expires_at</text>
+
+            <rect class="d-node" x="430" y="50" width="290" height="160" rx="8"/>
+            <text class="d-title" x="448" y="78">decks</text>
+            <line class="d-line" x1="448" y1="90" x2="702" y2="90" stroke-width="1"/>
+            <text class="d-sub" x="448" y="114">id · PK</text>
+            <text class="d-sub" x="448" y="136">user_id · FK → users</text>
+            <text class="d-sub" x="448" y="158">active · 单一启用</text>
+            <text class="d-sub" x="448" y="180">validation_errors · JSON</text>
+
+            <rect class="d-node" x="430" y="290" width="290" height="120" rx="8"/>
+            <text class="d-title" x="448" y="318">deck_cards</text>
+            <line class="d-line" x1="448" y1="330" x2="702" y2="330" stroke-width="1"/>
+            <text class="d-sub" x="448" y="354">deck_id · PK/FK → decks</text>
+            <text class="d-sub" x="448" y="376">card_id · PK/FK → cards</text>
+            <text class="d-sub" x="448" y="396">quantity · 1–4</text>
+
+            <rect class="d-node" x="820" y="50" width="260" height="180" rx="8"/>
+            <text class="d-title" x="838" y="78">cards</text>
+            <line class="d-line" x1="838" y1="90" x2="1062" y2="90" stroke-width="1"/>
+            <text class="d-sub" x="838" y="114">id · PK</text>
+            <text class="d-sub" x="838" y="136">status · draft / published</text>
+            <text class="d-sub" x="838" y="158">version · 乐观版本</text>
+            <text class="d-sub" x="838" y="180">structured_effects · JSON</text>
+            <text class="d-sub" x="838" y="202">image_data · LONGBLOB</text>
+
+            <line class="d-line" x1="170" y1="210" x2="170" y2="290" marker-end="url(#er-arrow)"/>
+            <text class="d-label" x="180" y="255">1 : N</text>
+
+            <line class="d-line" x1="300" y1="120" x2="430" y2="120" marker-end="url(#er-arrow)"/>
+            <text class="d-label" x="352" y="112">1 : N</text>
+
+            <line class="d-line" x1="575" y1="210" x2="575" y2="290" marker-end="url(#er-arrow)"/>
+            <text class="d-label" x="585" y="255">1 : N</text>
+
+            <path class="d-line" d="M950 230 V345 H720" marker-end="url(#er-arrow)"/>
+            <text class="d-label" x="830" y="338">1 : N</text>
+
+            <text class="d-label" x="40" y="440">迁移在连接时幂等执行：缺表建表，重复列忽略。牌组启用是事务内操作，先取消其他启用再启用目标。</text>
+          </svg>
+        </div>
+        <figcaption><b>数据模型。</b>卡牌把结构化效果存为 JSON、卡图存为二进制；牌组与卡牌是多对多。对局状态不在这些表里。</figcaption>
+      </figure>
+
+      <div class="prose">
+        <p>卡牌删除受外键约束保护：仍被牌组引用时删除会失败，接口返回 <code>CARD_IN_USE</code>，并提示先从牌组移除。已经开始的对局使用开赛时的卡牌定义快照，因此赛后改动卡牌不会影响已经在进行的对局。</p>
+        <p>牌组启用在事务中完成：先校验 50 张、同编号上限、各色信号球数量与全部卡牌已发布，再把该用户的其它牌组取消启用。创建房间时，服务端只接受“已启用且校验通过”的牌组，并把卡牌定义随座位一起带进对局。</p>
+      </div>
+    </section>
+
+    <section id="limits">
+      <div class="sec-label">08 / EXTENSIONS &amp; LIMITS</div>
+      <h2>扩展点与当前边界</h2>
+      <p class="section-intro">这个架构最重要的可扩展性，不是加页面，而是加卡牌与加规则时不需要改动整条链路。</p>
+
+      <div class="two-col">
+        <div>
+          <h3>怎么扩展</h3>
+          <ul class="list-plain">
+            <li><b>新增卡牌。</b>管理员在录卡页填写，或直接在 <code>packages/cards</code> 增加定义。发布要求完整卡图、规则文本，并且每个 <code>effectId</code> 都有对应的结构化效果。</li>
+            <li><b>新增普通效果。</b>优先使用 DSL 节点：抽牌、弃牌、改 PP/DP/充能、区域移动、横置、冻结、改侵蚀、视为信号球、检索、使用、装备、分支选择。</li>
+            <li><b>新增复杂规则。</b>在 <code>capabilities.ts</code> 注册稳定的 <code>customHandlerId</code>，并在 <code>current-card-handlers.ts</code> 实现。发布校验会拒绝未注册的处理器。</li>
+            <li><b>新增命令。</b>在 <code>protocol</code> 增加命令类型，在 <code>game-core</code> 同步补 <code>getLegalActions</code> 与 <code>applyCommand</code>，服务端透传，界面只消费新的合法动作。</li>
+            <li><b>换持久化。</b>实现 <code>AppRepository</code> 即可；现有内存实现是测试替身，MySQL 实现是生产路径。</li>
+          </ul>
+        </div>
+        <div>
+          <h3>当前边界</h3>
+          <ul class="list-plain">
+            <li><b>单进程内存房间。</b>重启服务会丢失所有房间与对局；要横向扩展，需要把房间状态移到共享存储或粘性会话。</li>
+            <li><b>没有对局回放与战绩。</b>事件日志只存在于当前 <code>GameState</code>，结束后保留在右侧回合记录里，不落库。</li>
+            <li><b>效果覆盖按卡表推进。</b>协战、浮空及未确认交互不会被静默猜测，相关卡牌保持草稿或缺省不发布。</li>
+            <li><b>本地开发默认值。</b>CORS 是固定 localhost 端口白名单；生产需要 HTTPS、Secure Cookie 与真实管理员密码。</li>
+            <li><b>断线策略。</b>断线即暂停，房间在任一座位断线超过 10 分钟后清理；没有托管 AI 或超时自动代打。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="run">
+      <div class="sec-label">09 / RUN &amp; VERIFY</div>
+      <h2>本地运行与验证矩阵</h2>
+      <p class="section-intro">本地需要 Node 22+ 与 MySQL 8。数据库、表与管理员会在启动或初始化命令中自动准备。</p>
+
+      <div class="run-grid">
+        <div>
+          <h3>启动</h3>
+          <pre><code>Copy-Item .env.example .env
+npm.cmd install
+npm.cmd run db:seed-cards -w @pgr/server
+npm.cmd run db:bootstrap-admin -w @pgr/server
+npm.cmd run dev</code></pre>
+          <div class="ports">
+            <span>Web :5173</span>
+            <span>Server :3001</span>
+            <span>/api/health</span>
+            <span>E2E :5184 / :3011</span>
+          </div>
+        </div>
+        <div>
+          <h3>验证</h3>
+          <pre><code>npm.cmd test          # Vitest · 139 个用例
+npm.cmd run typecheck # tsc -b
+npm.cmd run lint      # ESLint · 0 warning
+npm.cmd run build     # 全部 workspace
+npm.cmd run test:e2e  # Playwright · Edge</code></pre>
+          <p class="panel-note">E2E 使用真实本地 MySQL、<code>E2E-</code> 前缀卡牌与可解码测试图，不覆盖正式编号卡图。</p>
+        </div>
+      </div>
+
+      <div class="callout"><strong>推荐阅读顺序：</strong>先看 <code>packages/protocol/src/index.ts</code> 了解状态与命令，再看 <code>packages/game-core/src/index.ts</code> 的 <code>getLegalActions → applyCommand → createPlayerView</code>，然后看 <code>apps/server/src/room-manager.ts</code> 如何把房间接到规则引擎，最后看 <code>apps/web/src/Battlefield.tsx</code> 如何把视图变成操作。</div>
+    </section>
+  </main>
+
+  <footer>
+    <span>依据仓库当前代码、README 与开发记录整理 · 分支 feat/card-battle-mvp · 71990af</span>
+    <span class="mono">docs/architecture.html</span>
+  </footer>
+</div>
