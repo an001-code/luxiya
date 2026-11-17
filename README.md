@@ -36,6 +36,10 @@ npm.cmd run dev
 - Server：<http://localhost:3001>
 - 健康检查：<http://localhost:3001/api/health>
 
+开发后端使用 Node.js 22 的原生 `--watch` 配合 `--import tsx` 加载 TypeScript，避免 Windows 下 `concurrently → npm → tsx watch` 的管道启动挂起。正常启动会依次显示“正在连接 MySQL”“数据库就绪”和 `Card battle server listening on http://localhost:3001`；仅看到 Vite 就绪不代表登录接口已经启动。数据库连接或后端端口异常会输出中文错误提示。
+
+请只保留一份 `npm.cmd run dev`。前端端口被占用时会明确报错，不再自动切换到5174；统一启动中有进程异常退出时会停止同组进程。修改启动脚本后，在旧终端按 `Ctrl+C`，然后重新执行 `npm.cmd run dev`。
+
 首次打开 Web 先注册或登录。玩家需要在“牌组编辑”中保存并启用一个合法牌组：恰好 50 张、同编号最多 4 张，红蓝黄信号球各 4 张。之后一个玩家创建房间，另一个输入房间码加入，双方点击“使用启用牌组准备”。
 
 管理员使用 `Anonce` 登录后可看到“卡牌录入”。发布卡牌要求完整图片、规则文本、结构化效果配置，以及服务端已注册的复杂效果处理器。
